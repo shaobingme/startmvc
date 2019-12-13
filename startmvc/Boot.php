@@ -18,11 +18,10 @@ class Boot
     }
     public function run()
     {
+	    define('SM_VERSION', 'V1.0.1');
         if (phpversion() < 7) {
             die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');            
         }
-        //脚本运行开始时间
-		$GLOBALS['script_start_time'] = microtime(true);
 		
         session_start();
         date_default_timezone_set($this->conf['timezone']);
