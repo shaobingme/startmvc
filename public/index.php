@@ -20,5 +20,5 @@ define('_STATIC_','/static/');
 define('DB_AUTO_CONNECT', false);//数据库自动连接
 
 require(ROOT_PATH . '/vendor/autoload.php');
-$boot = new Startmvc\boot;
+$boot = new Startmvc\Boot;
 $boot->run();
