@@ -18,7 +18,6 @@ class Boot
     }
     public function run()
     {
-	    define('SM_VERSION', 'V1.0.1');
         if (phpversion() < 7) {
             die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');            
         }
