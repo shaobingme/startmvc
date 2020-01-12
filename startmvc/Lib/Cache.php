@@ -79,4 +79,16 @@ class Cache{
             $this->conn->flushAll();
         }            
     }
+
+   //内置缓存方法
+	function cache($name, $val, $expire = 3600)
+	{
+		$res=$this->get($name);
+		if(!$res){
+			$this->set($name, $val,$expire);
+			$res=$this->get($name);
+		}
+		return $res;
+	}
+    
 }
