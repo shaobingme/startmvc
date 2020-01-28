@@ -18,7 +18,7 @@ return
 正则表达式替换
 */
 return [
-	['/^(.*?)$/','home/$1'],//隐藏模块名
+	//['/^(.*?)$/','home/$1'],//隐藏home模块url(适用于单模块)
 	//['/^(\d+)(.*?)$/','home/goods/index/$1'],
 	//['/^category\/(\d+)$/','home/category/index/$1'],
 ];

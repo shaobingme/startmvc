@@ -7,6 +7,6 @@ class IndexController extends Controller{
 
 	}
 	public function indexAction (){
-		echo "hello world!!";
+		echo "hello world!!admin";
 	}
 }
