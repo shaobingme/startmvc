@@ -1046,7 +1046,7 @@ class Sql
     public function rollBack()
     {
         if (--$this->transactionCount) {
-            $this->pdo->exec('ROLLBACK TO trans' . $this->transactionCount + 1);
+            $this->pdo->exec('ROLLBACK TO trans' . ($this->transactionCount + 1));
             return true;
         }
 
