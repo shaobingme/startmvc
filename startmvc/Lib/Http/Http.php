@@ -20,46 +20,46 @@ class Http
     {
         $default = isset($options['default']) ? $options['default'] : '';
         $val = is_null($val) ? $default : $val;
-        //$type = isset($options['type']) ? $options['type'] : 'string';
-        //switch ($type) {
-        //    case 'string':
-        //        $val = (string)$val;
-        //        break;
-        //    case 'int':
-        //        $val = (int)$val;
-        //        break;
-        //    case 'float':
-        //        $val = (float)$val;
-        //        break;                
-        //    case 'array':
-        //        $val = (array)$val;
-        //        break;
-        //    case 'bool':
-        //        $val = (bool)$val;
-        //        break;
-        //    default:
-        //        $val = (string)$val;
-        //}
-        $type = gettype($val);
+        $type = isset($options['type']) ? $options['type'] : 'string';
         switch ($type) {
             case 'string':
                 $val = (string)$val;
                 break;
-            case 'integer':
+            case 'int':
                 $val = (int)$val;
                 break;
-            case 'double':
+            case 'float':
                 $val = (float)$val;
                 break;                
             case 'array':
                 $val = (array)$val;
                 break;
-            case 'boolean':
+            case 'bool':
                 $val = (bool)$val;
                 break;
             default:
                 $val = (string)$val;
         }
+        //$type = gettype($val);
+        //switch ($type) {
+        //    case 'string':
+        //        $val = (string)$val;
+        //        break;
+        //    case 'integer':
+        //        $val = (int)$val;
+        //        break;
+        //    case 'double':
+        //        $val = (float)$val;
+        //        break;                
+        //    case 'array':
+        //        $val = (array)$val;
+        //        break;
+        //    case 'boolean':
+        //        $val = (bool)$val;
+        //        break;
+        //    default:
+        //        $val = (string)$val;
+        //}
         $function = isset($options['function']) ? $options['function'] : [];
         $function = is_array($function) ? $function : [$function];
         $filter = isset($options['filter']) ? $options['filter'] : true;
