@@ -10,7 +10,7 @@
  
 namespace Startmvc\Lib\Http;
 
-class cookie_pextends Http
+class Cookie extends Http
 {
     public static function set($key, $val, $options = [])
     {
