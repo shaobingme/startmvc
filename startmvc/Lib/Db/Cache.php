@@ -1,12 +1,11 @@
 <?php
 /**
- * PDOx - Useful Query Builder & PDO Class
+ * StartMVC超轻量级PHP开发框架
  *
- * @class    Cache
- * @author   izni burak demirtaş (@izniburak) <info@burakdemirtas.org>
- * @web      <http://burakdemirtas.org>
- * @url      <https://github.com/izniburak/PDOx>
- * @license  The MIT License (MIT) - <http://opensource.org/licenses/MIT>
+ * @author    Shao Bing QQ858292510
+ * @copyright Copyright (c) 2020-2021
+ * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
+ * @link      http://startmvc.com
  */
 
 namespace Startmvc\Lib\Db;
