@@ -22,9 +22,9 @@ abstract class Start
         $this->conf = include ROOT_PATH . '/config/common.php';
         if(DB_AUTO_CONNECT){
 	    	$dbConf = include ROOT_PATH . '/config/database.php';
-	        if ($dbConf['driver'] != '') {
+	        if ($dbConf['default'] != '') {
 	            if (Start::$dataContainer == null) {
-	                Start::$dataContainer = new Sql($dbConf);            
+	                Start::$dataContainer = new Sql($dbConf['connections'][$dbConf['default']]);
 	            }
 	            $this->db= Start::$dataContainer;
 	        }

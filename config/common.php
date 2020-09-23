@@ -18,7 +18,7 @@ return [
     'urlrewrite' => true,           //是否Url重写，隐藏index.php,需要服务器支持和对应的规则
     'session_prefix' => '',          //Session前缀
     'cookie_prefix' => '',           //Cookie前缀
-	'cache_status'=>true,					//false为关闭，true为开启缓存
+	'cache_status'=>true,			//false为关闭，true为开启缓存
 	'cache_type'=>'file',			//支持类型 : file [文件型],redis[内存型]
     //以下配置内存型redis缓存的必须设置
     'cache_host' => '127.0.0.1', 		//主机地址

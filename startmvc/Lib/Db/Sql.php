@@ -89,9 +89,7 @@ class Sql implements SqlInterface
         $config['host'] = isset($config['host']) ? $config['host'] : 'localhost';
         $config['charset'] = isset($config['charset']) ? $config['charset'] : 'utf8';
         $config['collation'] = isset($config['collation']) ? $config['collation'] : 'utf8_general_ci';
-        $config['port'] = isset($config['port'])
-            ? $config['port']
-            : strstr($config['host'], ':') ? explode(':', $config['host'])[1] : '';
+        $config['port'] = isset($config['port'])? $config['port']:'';
         $this->prefix = isset($config['prefix']) ? $config['prefix'] : '';
         $this->cacheDir = isset($config['cachedir']) ? $config['cachedir'] : __DIR__ . '/cache/';
         $this->debug = isset($config['debug']) ? $config['debug'] : true;
