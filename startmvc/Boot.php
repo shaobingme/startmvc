@@ -29,7 +29,7 @@ class Boot
         } else {
             error_reporting(0);
         }
-        require_once('Function.php');//加载系统内置函数
+        require_once('function.php');//加载系统内置函数
         $this->loadFunction();//加载自定义函数
         $this->getRoute();
 
