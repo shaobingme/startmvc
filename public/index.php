@@ -18,7 +18,7 @@ define('BASE_PATH', dirname(__DIR__) .'/');
 define('PUBLIC_PATH', BASE_PATH . 'public' . '/');
 define('_STATIC_','/static/');
 define('DB_AUTO_CONNECT', false);//数据库自动连接
-define('SM_VERSION', '1.0.5');//版本号
+define('SM_VERSION', '1.0.6');//版本号
 
 require(ROOT_PATH . '/vendor/autoload.php');
 $boot = new Startmvc\Boot;
