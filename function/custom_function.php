@@ -14,7 +14,11 @@
 	 * @param string $str
 	 * @return string
 	 */
+	 
+if(!function_exists('test')){
     function test($para='') {
         //$result = 
         //return $result;
     }
+}
+
