@@ -48,5 +48,22 @@ abstract class Start
         }
         return str_replace('%2F', '/', urlencode($url));
     }
+    protected function lang($key)
+    {
+    	static $lang = array();
+    	$locale = $this->conf['locale']?:'zh_cn';
+    	if ($this->conf['muti_module']) {
+    		$lang_path = APP_PATH .MODULE.'/Language/'.$locale.'.php';
+		}else{
+	    	$lang_path = APP_PATH .'Language/'.$locale.'.php';
+    	}
+    	if(is_file($lang_path)){
+			$lang=include $lang_path;
+    	}else{
+	    	die('语言包文件不存在777');
+    	}
+    	return $key?$lang[$key]:$key;
+
+    }
 
 }

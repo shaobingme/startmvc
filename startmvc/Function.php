@@ -8,13 +8,27 @@
  * @link      http://startmvc.com
  */
 
+
 	/**
-	 * 基本系统函数
+	 * 语言包调用
 	 *
 	 * @param string $str
 	 * @return string
 	 */
-    function test($para='') {
-        //$result = 
-        //return $result;
+	
+    function lang($key) {
+    	$lang = array();
+    	$conf = include ROOT_PATH . '/config/common.php';
+    	$locale = $conf['locale']?:'zh_cn';
+    	if ($conf['muti_module']) {
+    		$lang_path = APP_PATH .MODULE.'/Language/'.$locale.'.php';
+		}else{
+	    	$lang_path = APP_PATH .'Language/'.$locale.'.php';
+    	}
+    	if(is_file($lang_path)){
+			$lang=include $lang_path;
+    	}else{
+	    	die('语言包文件不存在');
+    	}
+    	return $key?$lang[$key]:$key;
     }

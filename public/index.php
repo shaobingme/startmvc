@@ -11,14 +11,14 @@
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'App');
 define('ROOT_PATH', dirname(__FILE__) . '/..');
-define('APP_PATH', dirname(__FILE__) . '/../app');
+define('APP_PATH', dirname(__FILE__) . '/../app/');
 // 项目根目录
 define('BASE_PATH', dirname(__DIR__) .'/');
 // 公共入口目录
 define('PUBLIC_PATH', BASE_PATH . 'public' . '/');
 define('_STATIC_','/static/');
 define('DB_AUTO_CONNECT', false);//数据库自动连接
-define('SM_VERSION', '1.0.6');//版本号
+define('SM_VERSION', '1.0.7');//版本号
 
 require(ROOT_PATH . '/vendor/autoload.php');
 $boot = new Startmvc\Boot;

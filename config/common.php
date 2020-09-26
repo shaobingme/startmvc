@@ -23,6 +23,6 @@ return [
     //以下配置内存型redis缓存的必须设置
     'cache_host' => '127.0.0.1', 		//主机地址
     'cache_port'   => '6379',			//端口 redis 一般为 6379
-    'cache_prefix'  => 'sm_'			//缓存变量前缀
-
+    'cache_prefix'  => 'sm_',			//缓存变量前缀
+    'locale'  => 'zh_cn',			//指定默认语言，小写
 ];

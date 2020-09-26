@@ -31,6 +31,7 @@
         <h3><?=$title?></h3>
         <ul>
             <li>更多功能了解，请查看<a href="http://startmvc.com" target="_blank">Startmvc</a></li>
+            <?=lang('startmvc')?>
         </ul>
     </div>
 </body>
