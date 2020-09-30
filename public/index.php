@@ -17,8 +17,10 @@ define('BASE_PATH', dirname(__DIR__) .'/');
 // 公共入口目录
 define('PUBLIC_PATH', BASE_PATH . 'public' . '/');
 define('_STATIC_','/static/');
-define('DB_AUTO_CONNECT', false);//数据库自动连接
-define('SM_VERSION', '1.0.7');//版本号
+//数据库自动连接
+define('DB_AUTO_CONNECT', false);
+//版本号
+define('SM_VERSION', '1.0.8');
 
 require(ROOT_PATH . '/vendor/autoload.php');
 $boot = new Startmvc\Boot;
