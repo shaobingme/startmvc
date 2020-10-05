@@ -14,7 +14,7 @@ class Boot
 	public $conf;
 	public function __construct()
 	{
-		$this->conf = include '../config/common.php';
+		$this->conf = include CONFIG_PATH.'common.php';
 	}
 	public function run()
 	{
@@ -34,7 +34,7 @@ class Boot
 		$this->getRoute();
 
 	}
-	private function loadFunction($dirPath = '../function/')
+	private function loadFunction($dirPath = ROOT_PATH.'function/')
 	{
 		if ($dir = opendir($dirPath)) {
 			while ($file = readdir($dir)) {
@@ -54,7 +54,7 @@ class Boot
 		$pathInfo = isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : (isset($_SERVER['ORIG_PATH_INFO']) ? $_SERVER['ORIG_PATH_INFO'] : (isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : ''));
 		$pathInfo = str_replace('/index.php', '', mb_convert_encoding($pathInfo, 'UTF-8', 'GBK'));
 		$pathInfo = str_replace($this->conf['url_suffix'], '', substr($pathInfo, 1));
-		$route = include('../config/route.php');
+		$route = include(CONFIG_PATH.'route.php');
 		$rule = array(
 			':any' => '.*?',
 			':num' => '[0-9]+'

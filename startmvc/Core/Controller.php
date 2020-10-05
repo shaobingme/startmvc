@@ -52,7 +52,7 @@ abstract class Controller extends Start
     protected function show($content, $data = [], $debug = false)
     {
         $file_name = md5(mb_convert_encoding(isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : '', 'UTF-8', 'GBK')) . '_' . time() . rand(1000, 9999);
-        $runtime_file = '../runtime/temp/' . $file_name . '.php';
+        $runtime_file = TEMP_PATH . $file_name . '.php';
         $of = fopen($runtime_file, 'w+');
         fwrite($of, $content);
         fclose($of);

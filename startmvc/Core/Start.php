@@ -19,9 +19,9 @@ abstract class Start
     public static $dataContainer;
     public function __construct()
     {
-        $this->conf = include ROOT_PATH . '/config/common.php';
+        $this->conf = include CONFIG_PATH . 'common.php';
         if(DB_AUTO_CONNECT){
-	    	$dbConf = include ROOT_PATH . '/config/database.php';
+	    	$dbConf = include CONFIG_PATH . '/database.php';
 	        if ($dbConf['default'] != '') {
 	            if (Start::$dataContainer == null) {
 	                Start::$dataContainer = new Sql($dbConf['connections'][$dbConf['default']]);
