@@ -11,7 +11,7 @@
 // 系统目录分隔符
 define('DS', DIRECTORY_SEPARATOR);
 // 项目根目录
-define('ROOT_PATH', realpath(__DIR__.DS.'..'.DS).DS);    // 入口文件在pulic中
+define('ROOT_PATH', realpath(__DIR__.DS.'..'.DS).DS);    // 入口文件在 public 中
 //define('ROOT_PATH', dirname(__FILE__).DS);    // 入口文件在项目根目录
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'App');
