@@ -30,7 +30,7 @@
         <h1><?php echo $content;?></h1>
         <h3><?=$title?></h3>
         <ul>
-            <li>更多功能了解，请查看<a href="http://startmvc.com" target="_blank">Startmvc</a></li>
+            <li>更多功能了解，请查看<a href="http://startmvc.com" target="_blank">Startmvc</a>  v<?=SM_VERSION?></li>
             <?=lang('startmvc')?>
         </ul>
     </div>

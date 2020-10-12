@@ -132,6 +132,7 @@ abstract class Controller extends Start
     protected function redirect($url)
     {
         header('location:' . $url);
+        exit();
     }
     protected function notFound()
     {

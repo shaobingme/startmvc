@@ -28,10 +28,8 @@ define('TEMP_PATH', ROOT_PATH . 'runtime'.DS.'temp'.DS);
 // 配置文件路径
 define('CONFIG_PATH', ROOT_PATH . 'config'.DS);
 define('_STATIC_','/static/');
-//数据库自动连接
-define('DB_AUTO_CONNECT', false);
 //版本号
-define('SM_VERSION', '1.1.0');
+define('SM_VERSION', '1.1.1');
 require(ROOT_PATH .'vendor'.DS.'autoload.php');
 $boot = new Startmvc\Boot;
 $boot->run();

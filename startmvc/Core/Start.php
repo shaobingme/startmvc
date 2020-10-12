@@ -20,7 +20,7 @@ abstract class Start
     public function __construct()
     {
         $this->conf = include CONFIG_PATH . 'common.php';
-        if(DB_AUTO_CONNECT){
+        if($this->conf['db_auto_connect']){
 	    	$dbConf = include CONFIG_PATH . '/database.php';
 	        if ($dbConf['default'] != '') {
 	            if (Start::$dataContainer == null) {
