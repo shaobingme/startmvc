@@ -97,7 +97,7 @@ class Boot
 			die();
 		}
 		$action .= 'Action';
-		Di::make($controller, $action, $argv);
+		Loader::make($controller, $action, $argv);
 	}
 
 

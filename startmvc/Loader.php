@@ -10,7 +10,7 @@
  
 namespace Startmvc;
 
-class Di
+class Loader
 {
     public static function getInstance($className)
     {

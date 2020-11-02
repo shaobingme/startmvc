@@ -11,7 +11,7 @@
 namespace Startmvc\Core;
 
 use Startmvc\Lib\Db\Sql;
-use Startmvc\Di;
+use Startmvc\Loader;
 
 abstract class Start
 {
@@ -36,7 +36,7 @@ abstract class Start
     protected function model($model, $module = MODULE)
     {       
         $model = APP_NAMESPACE.'\\' . ($module != '' ? $module . '\\' : '') . 'Model\\' . $model . 'Model';
-        return Di::getInstance($model);
+        return Loader::getInstance($model);
     }
     protected function url($url)
     {
