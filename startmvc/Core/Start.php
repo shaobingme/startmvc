@@ -35,6 +35,11 @@ abstract class Start
     }
     protected function model($model, $module = MODULE)
     {       
+        //if($model){
+	       // $model = APP_NAMESPACE.'\\' . ($module != '' ? $module . '\\' : '') . 'Model\\' . $model . 'Model';
+        //}else{
+	       // $model = CORE_PATH.'\\Model';
+        //}
         $model = APP_NAMESPACE.'\\' . ($module != '' ? $module . '\\' : '') . 'Model\\' . $model . 'Model';
         return Loader::getInstance($model);
     }

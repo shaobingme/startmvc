@@ -9,7 +9,7 @@ return [
 			'host'		=> 'localhost',//数据库服务器地址
 			'database'	=> 'startmvc',//数据库名称
 			'username'	=> 'root',//数据库用户名
-			'password'	=> '',//数据库密码
+			'password'	=> '123456',//数据库密码
 			'charset'	=> 'utf8',//数据库字符集
 			'port' => 3306,  //数据库端口
 			'collation'	=> 'utf8_general_ci',//数据表编码
