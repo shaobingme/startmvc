@@ -3,6 +3,7 @@ namespace App\Home\Controller;
 //use Startmvc\Core\Controller;
 use App\Common\BaseController;
 
+
 class IndexController extends BaseController{
 	
     public function indexAction()

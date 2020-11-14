@@ -18,7 +18,7 @@ abstract class Model extends Start
 	public function find($field="*",$where='',$getsql=false)
 	{
 		$where=!is_numeric($where)?:['id'=>$where];
-		$res=self::findAll($field,$where,'',1,$getsql=false);
+		$res=self::findAll($field,$where,'',1,$getsql);
 		if($res){
 			return $res[0];
 		}
@@ -29,17 +29,38 @@ abstract class Model extends Start
 	{
 		$field=$field?:'*';
 		$this->db->select($field)->table($this->table);
-		if (is_array($where) && !empty($where)) {
+		if (!empty($where)) {
 			$where=$this->db->where($where);
 		}
 		if($order){
 			$this->db->orderBy($order);
 		}
-		if($limit){
+		if(is_numeric($limit)){
 			$this->db->limit($limit);
+		}else{
+			$limit_arr=explode(',');
+			$this->db->limit($limit_arr[0],$limit_arr[1]);
 		}
 		return $this->db->getAll($getsql);
 	}
-
+	//更新数据
+	public function update($data,$where=[])
+	{
+		$this->db->table($this->table);
+		if ($where){
+			$where=$this->db->where($where);
+		}
+		return $this->db->update($data);
+	}
+	//删除数据
+	public function delete($where='')
+	{
+		$this->db->table($this->table);
+		if ($where){
+			$where=!is_numeric($where)?:['id'=>$where];
+			$where=$this->db->where($where);
+		}
+		return $this->db->delete();
+	}
 
 }
