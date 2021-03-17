@@ -25,20 +25,8 @@ abstract class Controller extends Start
 		    $this->assign[$name] = $data;
 	    }
 	    //print_r($this->assign);
-        
     }
 
-
-    
-
-    //显示模板
-    function display($v){
-        $viewFile = APP_PATH."home".DIRECTORY_SEPARATOR."view".DIRECTORY_SEPARATOR.$v;
-        if(is_file($viewFile)){ 
-            extract($this->assign);
-            include $viewFile;
-        }
-    }
 
     protected function view($template = '')
     {
@@ -51,7 +39,6 @@ abstract class Controller extends Start
             $template = APP_PATH . '/' . (MODULE != '' ? MODULE . '/' : '') . 'View/' . $template . '.php';
         }
         if (file_exists($template)) {
-
             $contents = file_get_contents($template);
             $contents = $this->tp_engine($contents);
 
@@ -86,14 +73,11 @@ abstract class Controller extends Start
         $of = fopen($runtime_file, 'w+');
         fwrite($of, $content);
         fclose($of);
-        print_r($this->assign);
-
         if(is_object($this->assign)) {
 			extract((array)$this->assign);
 	    }else{
 			extract($this->assign);
 	    }
-	    
         header('Content-Type:text/html; charset=utf-8');
         include_once ($runtime_file);
     }
