@@ -10,7 +10,9 @@ class IndexController extends BaseController{
     {
 	    $data['title'] = '超轻量php框架-欢迎使用Startmvc';
 	    $data['content'] = 'Hello StartMVC!';
-        $this->view($data);
+	    $this->assign($data);
+
+        $this->view();
     }
     public function __call($name,$arg)
     {

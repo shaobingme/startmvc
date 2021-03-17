@@ -13,7 +13,34 @@ use Startmvc\Lib\Http\Request;
 
 abstract class Controller extends Start
 {
-    protected function view($data = [], $template = '', $debug = false)
+	public $assign=[];
+    /**
+     * 为模板对象赋值
+     */
+    public function assign($name, $data=null)
+    {
+	    if(is_array($name)){
+		    $this->assign = $name;
+	    }else{
+		    $this->assign[$name] = $data;
+	    }
+	    //print_r($this->assign);
+        
+    }
+
+
+    
+
+    //显示模板
+    function display($v){
+        $viewFile = APP_PATH."home".DIRECTORY_SEPARATOR."view".DIRECTORY_SEPARATOR.$v;
+        if(is_file($viewFile)){ 
+            extract($this->assign);
+            include $viewFile;
+        }
+    }
+
+    protected function view($template = '')
     {
         if (is_array($template)) {
             $template = APP_PATH . '/' . $template[0] . '/View/' . $template[1] . '.php';
@@ -24,9 +51,12 @@ abstract class Controller extends Start
             $template = APP_PATH . '/' . (MODULE != '' ? MODULE . '/' : '') . 'View/' . $template . '.php';
         }
         if (file_exists($template)) {
+
             $contents = file_get_contents($template);
             $contents = $this->tp_engine($contents);
-            $this->show($contents, $data, $debug);
+
+        header('Content-Type:text/html; charset=utf-8');
+        $this->show($contents);
         } else {
             $this->content('视图文件不存在：' . $template);
         }
@@ -49,25 +79,23 @@ abstract class Controller extends Start
         $c = str_replace('<?php php', '<?php', $c);
         return $c;
     }
-    protected function show($content, $data = [], $debug = false)
+    protected function show($content)
     {
-        $file_name = md5(mb_convert_encoding(isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : '', 'UTF-8', 'GBK')) . '_' . time() . rand(1000, 9999);
+        $file_name = md5(mb_convert_encoding(isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : '', 'UTF-8', 'GBK'));
         $runtime_file = TEMP_PATH . $file_name . '.php';
         $of = fopen($runtime_file, 'w+');
         fwrite($of, $content);
         fclose($of);
-		if (is_array($data)) {
-            extract($data);
-        } elseif(is_object($data)) {
-            extract((array)$data);
-        } else {
-            $debug = $data;
-        }
+        print_r($this->assign);
+
+        if(is_object($this->assign)) {
+			extract((array)$this->assign);
+	    }else{
+			extract($this->assign);
+	    }
+	    
         header('Content-Type:text/html; charset=utf-8');
         include_once ($runtime_file);
-        if (!$debug) {
-            unlink($runtime_file);
-        }
     }
     public function content($content)
     {

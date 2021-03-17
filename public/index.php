@@ -29,7 +29,7 @@ define('TEMP_PATH', ROOT_PATH . 'runtime'.DS.'temp'.DS);
 define('CONFIG_PATH', ROOT_PATH . 'config'.DS);
 define('_STATIC_','/static/');
 //版本号
-define('SM_VERSION', '1.1.4');
+define('SM_VERSION', '1.1.5');
 require(ROOT_PATH .'vendor'.DS.'autoload.php');
 $boot = new Startmvc\Boot;
 $boot->run();

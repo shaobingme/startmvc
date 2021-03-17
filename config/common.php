@@ -25,5 +25,5 @@ return [
     'cache_port'   => '6379',	//端口 redis 一般为 6379
     'cache_prefix'  => 'sm_',	//缓存变量前缀
     'locale'  => 'zh_cn',	//指定默认语言，小写
-    'db_auto_connect'  => false,	//是否开启数据库自动连接
+    'db_auto_connect'  => true,	//是否开启数据库自动连接
 ];
