@@ -11,7 +11,6 @@
             padding: 2% 5%;
             border-radius: 10px
         }
-
         ul {
             padding-left: 20px;
         }
@@ -19,7 +18,6 @@
             ul li {
                 line-height: 2.3
             }
-
         a {
             color: #20a53a
         }

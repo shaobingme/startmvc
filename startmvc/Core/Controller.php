@@ -42,8 +42,8 @@ abstract class Controller extends Start
             $contents = file_get_contents($template);
             $contents = $this->tp_engine($contents);
 
-        header('Content-Type:text/html; charset=utf-8');
-        $this->show($contents);
+        //header('Content-Type:text/html; charset=utf-8');
+        $this->show($contents,$template);
         } else {
             $this->content('视图文件不存在：' . $template);
         }
@@ -66,20 +66,23 @@ abstract class Controller extends Start
         $c = str_replace('<?php php', '<?php', $c);
         return $c;
     }
-    protected function show($content)
+    protected function show($content,$template)
     {
-        $file_name = md5(mb_convert_encoding(isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : '', 'UTF-8', 'GBK'));
+        $file_name=(MODULE != '' ? MODULE . '_' : '') .CONTROLLER . '_' . ACTION;
         $runtime_file = TEMP_PATH . $file_name . '.php';
-        $of = fopen($runtime_file, 'w+');
-        fwrite($of, $content);
-        fclose($of);
+        
+        if(!file_exists($runtime_file) || filemtime($runtime_file) < filemtime($template)) {
+	        $of = fopen($runtime_file, 'w+');
+	        fwrite($of, $content);
+	        fclose($of);
+        }
         if(is_object($this->assign)) {
 			extract((array)$this->assign);
 	    }else{
 			extract($this->assign);
 	    }
-        header('Content-Type:text/html; charset=utf-8');
-        include_once ($runtime_file);
+		header('Content-Type:text/html; charset=utf-8');
+		include_once($runtime_file);
     }
     public function content($content)
     {
