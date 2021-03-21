@@ -69,8 +69,11 @@ abstract class Controller extends Start
     protected function show($content,$template)
     {
         $file_name=(MODULE != '' ? MODULE . '_' : '') .CONTROLLER . '_' . ACTION;
+        if(!is_dir(TEMP_PATH)){
+	        mkdir(TEMP_PATH);
+	        chmod(TEMP_PATH,0777);
+        }
         $runtime_file = TEMP_PATH . $file_name . '.php';
-        
         if(!file_exists($runtime_file) || filemtime($runtime_file) < filemtime($template)) {
 	        $of = fopen($runtime_file, 'w+');
 	        fwrite($of, $content);
