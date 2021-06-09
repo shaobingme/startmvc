@@ -44,7 +44,7 @@
 
 		<div class="tips">
 			<span>
-				<?php if($results == 'error'){ ?>
+				<?php if($code == 0){ ?>
 				:(
 				<?php }else{ ?>
 				:)
@@ -69,7 +69,7 @@
 		sec--;
 		if (sec <= 0)
             <?php if ($url == '') {
-				if($results == 'success'){ ?>
+				if($code == 1){ ?>
 			window.location.href=document.referrer;
 				<?php } else { ?>
             window.history.go(-1);

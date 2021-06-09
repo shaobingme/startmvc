@@ -70,7 +70,7 @@ abstract class Controller extends Start
     {
         $file_name=(MODULE != '' ? MODULE . '_' : '') .CONTROLLER . '_' . ACTION;
         if(!is_dir(TEMP_PATH)){
-	        mkdir(TEMP_PATH);
+	        mkdir(TEMP_PATH,0777);
 	        chmod(TEMP_PATH,0777);
         }
         $runtime_file = TEMP_PATH . $file_name . '.php';
@@ -92,61 +92,41 @@ abstract class Controller extends Start
         header('Content-Type:text/plain; charset=utf-8');
         echo $content;
     }
-    protected function success($options = [])
+    protected function success($msg='',$url='',$data=[],$ajax=false)
     {
-        $msg = isset($options['msg']) ? $options['msg'] : '';
-        $url = isset($options['url']) ? $options['url'] : '';
-        if (isset($options['type'])) {
-            $type = $options['type'];
-        } else {
-            if (Request::isAjax()) {
-                $type = 'json';
-            } else {
-                $type = 'html';
-            }
-        }
-        if ($type == 'json') {
-            $this->json([
-                'results' => 'success',
-                'msg' => $msg,
-                'url' => $url
-            ]);
-        } else {
-            $results = 'success';
-            include '../startmvc/Core/location.php';
-            exit();
-        }
+       $this->response(1,$msg,$url,$data,$ajax);
     }
-    protected function error($options = [])
+    protected function error($msg='',$url='',$data=[],$ajax=false)
     {
-        $msg = isset($options['msg']) ? $options['msg'] : '';
-        $url = isset($options['url']) ? $options['url'] : '';
-        if (isset($options['type'])) {
-            $type = $options['type'];
-        } else {
-            if (Request::isAjax()) {
-                $type = 'json';
-            } else {
-                $type = 'html';
-            }
-        }
-        if ($type == 'json') {
-            $this->json([
-                'results' => 'error',
-                'msg' => $msg,
-                'url' => $url
-            ]);
-        } else {
-            $results = 'error';
-            include '../startmvc/Core/location.php';
-            exit();
-        }
+       $this->response(0,$msg,$url,$data,$ajax);
     }
+    protected function response($code='',$msg='',$url='',$data=[],$ajax=false)
+    {
+	    if($ajax || Request::isAjax()){
+		    $data=[
+			    'code'=>$code,//1-成功 0-失败
+			    'msg'=>$msg,
+			    'url'=>$url,
+			    'data'=>$data,
+		    ];
+	    	$this->json($data);
+	    }else{
+	        include '../startmvc/Core/location.php';
+	        exit();
+	    }
+
+    }
+
+    
     protected function json($data)
     {
         header('Content-Type:application/json; charset=utf-8');
-        echo json_encode($data, JSON_UNESCAPED_UNICODE);
+        //echo json_encode($data, JSON_UNESCAPED_UNICODE);
+        exit(json_encode($data, JSON_UNESCAPED_UNICODE));
     }
+
+
+    
     protected function redirect($url)
     {
         header('location:' . $url);
