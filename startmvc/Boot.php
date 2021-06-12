@@ -18,6 +18,8 @@ class Boot
 	}
 	public function run()
 	{
+		//版本号
+		define('SM_VERSION', '1.1.8');
 		if (phpversion() < 7) {
 			die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');			
 		}
