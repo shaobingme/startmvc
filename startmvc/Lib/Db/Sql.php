@@ -21,7 +21,7 @@ class Sql implements SqlInterface
      *
      * @var string
      */
-    const VERSION = '1.5.0';
+    const VERSION = '1.6.0';
 
     /**
      * @var PDO|null
@@ -79,7 +79,7 @@ class Sql implements SqlInterface
     protected $transactionCount = 0;
 
     /**
-     * smSql constructor.
+     * Pdox constructor.
      *
      * @param array $config
      */
@@ -87,9 +87,11 @@ class Sql implements SqlInterface
     {
         $config['driver'] = isset($config['driver']) ? $config['driver'] : 'mysql';
         $config['host'] = isset($config['host']) ? $config['host'] : 'localhost';
-        $config['charset'] = isset($config['charset']) ? $config['charset'] : 'utf8';
-        $config['collation'] = isset($config['collation']) ? $config['collation'] : 'utf8_general_ci';
-        $config['port'] = isset($config['port'])? $config['port']:'';
+        $config['charset'] = isset($config['charset']) ? $config['charset'] : 'utf8mb4';
+        $config['collation'] = isset($config['collation']) ? $config['collation'] : 'utf8mb4_general_ci';
+        $config['port'] = isset($config['port'])
+            ? $config['port']
+            : (strstr($config['host'], ':') ? explode(':', $config['host'])[1] : '');
         $this->prefix = isset($config['prefix']) ? $config['prefix'] : '';
         $this->cacheDir = isset($config['cachedir']) ? $config['cachedir'] : __DIR__ . '/cache/';
         $this->debug = isset($config['debug']) ? $config['debug'] : true;
@@ -244,7 +246,7 @@ class Sql implements SqlInterface
 
         if (!is_null($operator)) {
             $on = !in_array($operator, $this->operators)
-                ? $field1 . ' = ' . $operator
+                ? $field1 . ' = ' . $operator . (!is_null($field2) ? ' ' . $field2 : '')
                 : $field1 . ' ' . $operator . ' ' . $field2;
         }
 
@@ -521,6 +523,64 @@ class Sql implements SqlInterface
     }
 
     /**
+     * @param string         $field
+     * @param string|integer $key
+     * @param string         $type
+     * @param string         $andOr
+     *
+     * @return $this
+     */
+    public function findInSet($field, $key, $type = '', $andOr = 'AND')
+    {
+        $key = is_numeric($key) ? $key : $this->escape($key);
+        $where =  $type . 'FIND_IN_SET (' . $key . ', '.$field.')';
+
+        if ($this->grouped) {
+            $where = '(' . $where;
+            $this->grouped = false;
+        }
+
+        $this->where = is_null($this->where)
+            ? $where
+            : $this->where . ' ' . $andOr . ' ' . $where;
+
+        return $this;
+    }
+
+    /**
+     * @param string $field
+     * @param string $key
+     *
+     * @return $this
+     */
+    public function notFindInSet($field, $key)
+    {
+        return $this->findInSet($field, $key, 'NOT ');
+    }
+
+    /**
+     * @param string $field
+     * @param string $key
+     *
+     * @return $this
+     */
+    public function orFindInSet($field, $key)
+    {
+        return $this->findInSet($field, $key, '', 'OR');
+    }
+
+    /**
+     * @param string $field
+     * @param string $key
+     *
+     * @return $this
+     */
+    public function orNotFindInSet($field, $key)
+    {
+        return $this->findInSet($field, $key, 'NOT ', 'OR');
+    }
+
+    /**
      * @param string     $field
      * @param string|int $value1
      * @param string|int $value2
@@ -758,14 +818,14 @@ class Sql implements SqlInterface
      */
     public function error()
     {
-        $msg = '<h1>Database Error</h1>';
-        $msg .= '<h4>Query: <em style="font-weight:normal;">"' . $this->query . '"</em></h4>';
-        $msg .= '<h4>Error: <em style="font-weight:normal;">' . $this->error . '</em></h4>';
-
         if ($this->debug === true) {
             if (php_sapi_name() === 'cli') {
                 die("Query: " . $this->query . PHP_EOL . "Error: " . $this->error . PHP_EOL);
             }
+
+            $msg = '<h1>Database Error</h1>';
+            $msg .= '<h4>Query: <em style="font-weight:normal;">"' . $this->query . '"</em></h4>';
+            $msg .= '<h4>Error: <em style="font-weight:normal;">' . $this->error . '</em></h4>';
             die($msg);
         }
 
@@ -1223,8 +1283,6 @@ class Sql implements SqlInterface
     //            ? PDO::FETCH_ASSOC
     //            : PDO::FETCH_OBJ);
     //}
-
-
     protected function getFetchType($type)
     {
         return $type === 'class'
@@ -1233,8 +1291,6 @@ class Sql implements SqlInterface
                 ? PDO::FETCH_OBJ
                 : PDO::FETCH_ASSOC);
     }
-
-
 
     /**
      * Optimize Selected fields for the query
