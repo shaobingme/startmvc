@@ -1,6 +1,6 @@
 <?php
 namespace App\Home\Controller;
-//use Startmvc\Core\Controller;
+//use Startmvc\Lib\Controller;
 use App\Common\BaseController;
 
 

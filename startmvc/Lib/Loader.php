@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
  
-namespace Startmvc;
+namespace Startmvc\Lib;
 
 class Loader
 {

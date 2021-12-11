@@ -8,25 +8,22 @@
  * @link      http://startmvc.com
  */
  
-namespace Startmvc\Core;
+namespace Startmvc\Lib;
 
 use Startmvc\Lib\Db\Sql;
-use Startmvc\Loader;
+use Startmvc\Lib\Loader;
 
 abstract class Start
 {
     public $conf;
-    public static $dataContainer;
+    protected $db;
     public function __construct()
     {
         $this->conf = include CONFIG_PATH . 'common.php';
         if($this->conf['db_auto_connect']){
 	    	$dbConf = include CONFIG_PATH . '/database.php';
 	        if ($dbConf['default'] != '') {
-	            if (Start::$dataContainer == null) {
-	                Start::$dataContainer = new Sql($dbConf['connections'][$dbConf['default']]);
-	            }
-	            $this->db= Start::$dataContainer;
+	            $this->db= new Sql($dbConf['connections'][$dbConf['default']]);
 	        }
         }
         if($this->conf['cache_status']){
@@ -65,7 +62,7 @@ abstract class Start
     	if(is_file($lang_path)){
 			$lang=include $lang_path;
     	}else{
-	    	die('语言包文件不存在777');
+	    	die('语言包文件不存在');
     	}
     	return $key?$lang[$key]:$key;
 

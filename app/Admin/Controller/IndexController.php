@@ -1,6 +1,6 @@
 <?php
 namespace App\Admin\Controller;
-use Startmvc\Core\Controller;
+use Startmvc\Lib\Controller;
 
 class IndexController extends Controller{
 	function __construct (){

@@ -8,14 +8,15 @@
  * @link      http://startmvc.com
  */
 
-	/**
-	 * 自定义函数
-	 *
-	 * @param string $str
-	 * @return string
-	 */
-	 
+
 if(!function_exists('test')){
+
+
+    /**
+     * 自定义函数
+     *
+     * @param      string  $para   The para
+     */
     function test($para='') {
         //$result = 
         //return $result;

@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
  
-namespace Startmvc\Core;
+namespace Startmvc\Lib;
 use Startmvc\Lib\Http\Request;
 
 abstract class Controller extends Start
@@ -111,7 +111,7 @@ abstract class Controller extends Start
 		    ];
 	    	$this->json($data);
 	    }else{
-	        include '../startmvc/Core/location.php';
+	        include '../startmvc/Lib/location.php';
 	        exit();
 	    }
 

@@ -19,7 +19,7 @@ class Boot
 	public function run()
 	{
 		//版本号
-		define('SM_VERSION', '1.1.9');
+		define('SM_VERSION', '1.2.0');
 		if (phpversion() < 7) {
 			die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');			
 		}
@@ -36,6 +36,7 @@ class Boot
 		$this->getRoute();
 
 	}
+	
 	private function loadFunction($dirPath = ROOT_PATH.'function/')
 	{
 		if ($dir = opendir($dirPath)) {
@@ -99,7 +100,7 @@ class Boot
 			die();
 		}
 		$action .= 'Action';
-		Loader::make($controller, $action, $argv);
+		Lib\Loader::make($controller, $action, $argv);
 	}
 
 

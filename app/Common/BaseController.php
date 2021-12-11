@@ -9,7 +9,7 @@
  */
  
 namespace App\Common;
-use Startmvc\Core\Controller;
+use Startmvc\Lib\Controller;
 use Startmvc\Lib\Http\Session;
 class BaseController extends Controller{
 	public $category_list;

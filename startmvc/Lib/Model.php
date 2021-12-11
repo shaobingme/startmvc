@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
 
-namespace Startmvc\Core;
+namespace Startmvc\Lib;
 
 abstract class Model extends Start
 {
