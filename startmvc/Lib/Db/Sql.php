@@ -846,6 +846,18 @@ class Sql implements SqlInterface
     }
 
     /**
+     * Gets the value.
+     *
+     * @param      <type>  $name   The name
+     * @return     <type>  The value.
+     */
+    public function getValue($name)
+    {
+        $query = $this->get();
+        return isset($query[$name])?$query[$name]:false;
+    }
+
+    /**
      * @param bool|string $type
      * @param string|null $argument
      *
