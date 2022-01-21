@@ -19,7 +19,7 @@ class Boot
 	public function run()
 	{
 		//版本号
-		define('SM_VERSION', '1.2.1');
+		define('SM_VERSION', '1.2.2');
 		if (phpversion() < 7) {
 			die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');			
 		}
@@ -36,6 +36,7 @@ class Boot
 		$this->getRoute();
 
 	}
+
 	
 	private function loadFunction($dirPath = ROOT_PATH.'function/')
 	{
@@ -78,6 +79,7 @@ class Boot
 			define('MODULE', ucfirst($pathInfo[0]));
 			define('CONTROLLER', ucfirst($pathInfo[1]));
 			define('ACTION', $pathInfo[2]);
+			define('VIEW_PATH', APP_PATH.DS.MODULE . DS .'View');
 			$argv = array_slice($pathInfo, 3);
 		} else { 
 			$pathInfo[0] = isset($pathInfo[0]) && $pathInfo[0] != '' ? $pathInfo[0] : $this->conf['default_controller'];
@@ -85,6 +87,7 @@ class Boot
 			define('MODULE', '');
 			define('CONTROLLER', ucfirst($pathInfo[0]));
 			define('ACTION', $pathInfo[1]);
+			define('VIEW_PATH', APP_PATH.DS .'View');
 			$argv = array_slice($pathInfo, 2);
 		}
 		for ($i = 0; $i < count($argv); $i++) {
