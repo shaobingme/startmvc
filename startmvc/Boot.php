@@ -3,7 +3,7 @@
  * StartMVC超轻量级PHP开发框架
  *
  * @author	Shao Bing QQ858292510
- * @copyright Copyright (c) 2020-2021
+ * @copyright Copyright (c) 2020-2022
  * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
  * @link	  http://startmvc.com
  */
@@ -19,7 +19,7 @@ class Boot
 	public function run()
 	{
 		//版本号
-		define('SM_VERSION', '1.2.2');
+		define('SM_VERSION', '1.2.3');
 		if (phpversion() < 7) {
 			die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');			
 		}

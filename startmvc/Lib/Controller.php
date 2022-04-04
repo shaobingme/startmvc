@@ -3,7 +3,7 @@
  * StartMVC超轻量级PHP开发框架
  *
  * @author	Shao Bing QQ858292510
- * @copyright Copyright (c) 2020-2021
+ * @copyright Copyright (c) 2020-2022
  * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
  * @link	  http://startmvc.com
  */
@@ -39,18 +39,21 @@ abstract class Controller extends Start
 			$template = APP_PATH . '/' . (MODULE != '' ? MODULE . '/' : '') . 'View/' . $template . '.php';
 		}
 		if (file_exists($template)) {
-			$contents = file_get_contents($template);
-			$contents = $this->tp_engine($contents);
+	
+			//header('Content-Type:text/html; charset=utf-8');
+			$contents=$this->show($template);
+			header('Content-Type:text/html; charset=utf-8');
+			echo $contents;
+			die();
 
-		//header('Content-Type:text/html; charset=utf-8');
-		$this->show($contents,$template);
 		} else {
 			$this->content('视图文件不存在：' . $template);
 		}
 	}
-	private function tp_engine($c)
+
+	private function parse($str)
 	{
-		preg_match_all('/{include (.+)}/Ui', $c, $include);
+		preg_match_all('/{include (.+)}/Ui', $str, $include);
 		foreach ($include[1] as $inc) {
 			$inc_array = explode('|', $inc);
 			if (isset($inc_array[1])) {
@@ -59,29 +62,44 @@ abstract class Controller extends Start
 				$inc_file = APP_PATH . '/' . (MODULE != '' ? MODULE . '/' : '') . '/View/' . $inc_array[0] . '.php';
 			}
 			$inc_content = file_get_contents($inc_file);
-			$c = str_replace('{include ' . $inc . '}', $inc_content, $c);
+			$str = str_replace('{include ' . $inc . '}', $inc_content, $str);
+			
 		}
-		$c = str_replace('<?=', '<?php echo ', $c);
-		$c = str_replace('<?', '<?php ', $c);
-		$c = str_replace('<?php php', '<?php', $c);
-		return $c;
+		$str = str_replace('<?=', '<?php echo ', $str);
+		$str = str_replace('<?', '<?php ', $str);
+		$str = str_replace('<?php php', '<?php', $str);
+		
+		$str = preg_replace("/\{if\s+(.+?)\}/is", "<?php if(\\1) { ?>", $str);
+		$str = preg_replace("/\{elseif\s+(.+?)\}/is", "<?php } elseif(\\1) { ?>", $str);
+		$str = preg_replace("/\{else\}/i", "<?php } else { ?>", $str);
+		$str = preg_replace("/\{\/if\}/i", "<?php } ?>", $str);
+		$str = preg_replace("/\{foreach\s+(.+?)\}/is", "<?php foreach(\\1) { ?>", $str);
+		$str = preg_replace("/\{\/foreach\}/i", "<?php } ?>", $str);
+		$str = preg_replace("/\{eval\s+(.+?)\}/is", "<?php \\1 ?>", $str);
+		$str = preg_replace("/\{\\$(.+?)\}/i", "<?php echo $\\1; ?>", $str);
+		$str = preg_replace("/\{\\$(.+?)\}/i", "<?php echo $\\1; ?>", $str);
+		$str = preg_replace("/\{lang\((.+?)\)\}/is", "<?php echo lang(\\1); ?>", $str);
+
+		return $str;
 	}
-	protected function show($content,$template)
+
+	protected function show($template)
 	{
-		if ($this->conf['debug']){
-			$view_file=VIEW_PATH.DS.CONTROLLER . '_' . ACTION.'.php';
-		}else{
-			if(!is_dir(TEMP_PATH)){
-				mkdir(TEMP_PATH,0777);
-				chmod(TEMP_PATH,0777);
-			}
-			$runtime_file = TEMP_PATH .DS. (MODULE != '' ? MODULE . '_' : '') .CONTROLLER . '_' . ACTION.'.php';;
-			if(!file_exists($runtime_file) || filemtime($runtime_file) < filemtime($template)) {
-				$of = fopen($runtime_file, 'w+');
-				fwrite($of, $content);
-				fclose($of);
-			}
-			$view_file=$runtime_file;
+
+		//$view_file=VIEW_PATH.DS.CONTROLLER . '_' . ACTION.'.php';
+
+		if(!is_dir(TEMP_PATH)){
+			mkdir(TEMP_PATH,0777);
+			chmod(TEMP_PATH,0777);
+		}
+
+		$runtime_file = TEMP_PATH .DS. (MODULE != '' ? MODULE . '_' : '') .CONTROLLER . '_' . ACTION.'.php';
+		if(!file_exists($runtime_file) || filemtime($runtime_file) < filemtime($template)) {
+			$contents = file_get_contents($template);
+			$contents = $this->parse($contents);
+			$of = fopen($runtime_file, 'w+');
+			fwrite($of, $contents);
+			fclose($of);
 		}
 
 		if(is_object($this->assign)) {
@@ -89,10 +107,16 @@ abstract class Controller extends Start
 		}else{
 			extract($this->assign);
 		}
-		header('Content-Type:text/html; charset=utf-8');
-		include_once($view_file);
+
+		ob_start();
+		include_once($runtime_file);
+		$content = ob_get_contents();
+		ob_end_clean();
+
+		return $content;
 
 	}
+
 	public function content($content)
 	{
 		header('Content-Type:text/plain; charset=utf-8');
@@ -100,11 +124,11 @@ abstract class Controller extends Start
 	}
 	protected function success($msg='',$url='',$data=[],$ajax=false)
 	{
-	   $this->response(1,$msg,$url,$data,$ajax);
+		$this->response(1,$msg,$url,$data,$ajax);
 	}
 	protected function error($msg='',$url='',$data=[],$ajax=false)
 	{
-	   $this->response(0,$msg,$url,$data,$ajax);
+		$this->response(0,$msg,$url,$data,$ajax);
 	}
 	protected function response($code='',$msg='',$url='',$data=[],$ajax=false)
 	{
