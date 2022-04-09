@@ -37,7 +37,10 @@ abstract class Start
         //}else{
 	       // $model = CORE_PATH.'\\Model';
         //}
+        
+
         $model = APP_NAMESPACE.'\\' . ($module != '' ? $module . '\\' : '') . 'Model\\' . $model . 'Model';
+
         return Loader::getInstance($model);
     }
     protected function url($url)

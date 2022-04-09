@@ -1156,7 +1156,8 @@ class Sql implements SqlInterface
             return $this;
         }
 
-        $this->query = preg_replace('/\s\s+|\t\t+/', ' ', trim($query));
+        //$this->query = preg_replace('/\s\s+|\t\t+/', ' ', trim($query));
+        $this->query = trim($query);
         $str = false;
         foreach (['select', 'optimize', 'check', 'repair', 'checksum', 'analyze'] as $value) {
             if (stripos($this->query, $value) === 0) {
