@@ -73,24 +73,14 @@ class Boot
 			$pathInfo = preg_replace($pattern, $r[1], $pathInfo);
 		}
 		$pathInfo = explode('/', $pathInfo);
-		if ($this->conf['muti_module']) {
-			$pathInfo[0] = isset($pathInfo[0]) && $pathInfo[0] != '' ? $pathInfo[0] : $this->conf['default_module'];
-			$pathInfo[1] = isset($pathInfo[1]) && $pathInfo[1] != '' ? $pathInfo[1] : $this->conf['default_controller'];
-			$pathInfo[2] = isset($pathInfo[2]) && $pathInfo[2] != '' ? $pathInfo[2] : $this->conf['default_action'];
-			define('MODULE', ucfirst($pathInfo[0]));
-			define('CONTROLLER', ucfirst($pathInfo[1]));
-			define('ACTION', $pathInfo[2]);
-			define('VIEW_PATH', APP_PATH.DS.MODULE . DS .'View');
-			$argv = array_slice($pathInfo, 3);
-		} else { 
-			$pathInfo[0] = isset($pathInfo[0]) && $pathInfo[0] != '' ? $pathInfo[0] : $this->conf['default_controller'];
-			$pathInfo[1] = isset($pathInfo[1]) && $pathInfo[1] != '' ? $pathInfo[1] : $this->conf['default_action'];
-			define('MODULE', '');
-			define('CONTROLLER', ucfirst($pathInfo[0]));
-			define('ACTION', $pathInfo[1]);
-			define('VIEW_PATH', APP_PATH.DS .'View');
-			$argv = array_slice($pathInfo, 2);
-		}
+		$pathInfo[0] = isset($pathInfo[0]) && $pathInfo[0] != '' ? $pathInfo[0] : $this->conf['default_module'];
+		$pathInfo[1] = isset($pathInfo[1]) && $pathInfo[1] != '' ? $pathInfo[1] : $this->conf['default_controller'];
+		$pathInfo[2] = isset($pathInfo[2]) && $pathInfo[2] != '' ? $pathInfo[2] : $this->conf['default_action'];
+		define('MODULE', ucfirst($pathInfo[0]));
+		define('CONTROLLER', ucfirst($pathInfo[1]));
+		define('ACTION', $pathInfo[2]);
+		define('VIEW_PATH', APP_PATH.DS.MODULE . DS .'View');
+		$argv = array_slice($pathInfo, 3);
 		for ($i = 0; $i < count($argv); $i++) {
 			$argv[$i] = strip_tags(htmlspecialchars(stripslashes($argv[$i])));
 		}

@@ -20,15 +20,12 @@
     	$lang = array();
     	$conf = include ROOT_PATH . '/config/common.php';
     	$locale = $conf['locale']?:'zh_cn';
-    	if ($conf['muti_module']) {
-    		$lang_path = APP_PATH .MODULE.'/Language/'.$locale.'.php';
-		}else{
-	    	$lang_path = APP_PATH .'Language/'.$locale.'.php';
-    	}
+    	$lang_path = APP_PATH .MODULE.'/Language/'.$locale.'.php';
     	if(is_file($lang_path)){
 			$lang=include $lang_path;
     	}else{
 	    	die('语言包文件不存在');
     	}
+    	$lang_word=!empty($lang)?$lang[$key]:'';
     	return $key?$lang[$key]:$key;
     }

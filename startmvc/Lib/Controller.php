@@ -36,7 +36,7 @@ abstract class Controller extends Start
 			if ($template == '') {
 				$template = CONTROLLER . '_' . ACTION;
 			}
-			$template = APP_PATH . '/' . (MODULE != '' ? MODULE . '/' : '') . 'View/' . $template . '.php';
+			$template = APP_PATH . '/' .MODULE . '/'. 'View/' . $template . '.php';
 		}
 		if (file_exists($template)) {
 	
@@ -59,7 +59,7 @@ abstract class Controller extends Start
 			if (isset($inc_array[1])) {
 				$inc_file = APP_PATH . '/' . $inc_array[1] . '/View/' . $inc_array[0] . '.php';
 			} else {
-				$inc_file = APP_PATH . '/' . (MODULE != '' ? MODULE . '/' : '') . '/View/' . $inc_array[0] . '.php';
+				$inc_file = APP_PATH . '/' .MODULE . '/'. '/View/' . $inc_array[0] . '.php';
 			}
 			$inc_content = file_get_contents($inc_file);
 			$str = str_replace('{include ' . $inc . '}', $inc_content, $str);
@@ -93,7 +93,7 @@ abstract class Controller extends Start
 			chmod(TEMP_PATH,0777);
 		}
 
-		$runtime_file = TEMP_PATH .DS. (MODULE != '' ? MODULE . '_' : '') .CONTROLLER . '_' . ACTION.'.php';
+		$runtime_file = TEMP_PATH .DS.MODULE . '_'.CONTROLLER . '_' . ACTION.'.php';
 		if(!file_exists($runtime_file) || filemtime($runtime_file) < filemtime($template)) {
 			$contents = file_get_contents($template);
 			$contents = $this->parse($contents);

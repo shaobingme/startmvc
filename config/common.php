@@ -11,8 +11,7 @@ return [
     'debug' => true,	//Debug模式，开发过程中开启，生产环境中请关闭
     'timezone' => 'PRC',	//系统时区
     'url_suffix' => '.html',	//URL后缀
-    'muti_module' => true,	//是否多模块，true-多模块，false-单模块
-    'default_module' => 'Home',	//默认模块，单模块可以不填
+    'default_module' => 'Home',	//默认模块
     'default_controller' => 'Index',	//默认控制器
     'default_action' => 'index',	//默认方法
     'urlrewrite' => true,	//是否Url重写，隐藏index.php,需要服务器支持和对应的规则

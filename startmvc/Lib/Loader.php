@@ -43,7 +43,7 @@ class Loader
         $class = new \ReflectionClass($className);
         $paramArr = []; 
         if ($class->hasMethod($methodsName)) {
-            $construct = $class->getMethod($methodsName);            
+            $construct = $class->getMethod($methodsName);
             $params = $construct->getParameters();
             if (count($params) > 0) {
                 foreach ($params as $key => $param) {
