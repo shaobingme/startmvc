@@ -2,30 +2,60 @@
 /**
  * StartMVC超轻量级PHP开发框架
  *
- * @author    Shao Bing QQ858292510
+ * @author	Shao Bing QQ858292510
  * @copyright Copyright (c) 2020-2022
  * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
- * @link      http://startmvc.com
+ * @link	  http://startmvc.com
  */
 
 
-	/**
-	 * 语言包调用
-	 *
-	 * @param string $str
-	 * @return string
-	 */
-	
-    function lang($key) {
-    	$lang = array();
-    	$conf = include ROOT_PATH . '/config/common.php';
-    	$locale = $conf['locale']?:'zh_cn';
-    	$lang_path = APP_PATH .MODULE.'/Language/'.$locale.'.php';
-    	if(is_file($lang_path)){
-			$lang=include $lang_path;
-    	}else{
-	    	die('语言包文件不存在');
-    	}
-    	$lang_word=!empty($lang)?$lang[$key]:'';
-    	return $key?$lang[$key]:$key;
-    }
+/**
+ * 语言包调用
+ *
+ * @param string $str
+ * @return string
+ */
+
+function lang($key) {
+	$lang = array();
+	$conf = include ROOT_PATH . '/config/common.php';
+	$locale = $conf['locale']?:'zh_cn';
+	$lang_path = APP_PATH .MODULE.'/Language/'.$locale.'.php';
+	if(is_file($lang_path)){
+		$lang=include $lang_path;
+	}else{
+		die('语言包文件不存在');
+	}
+	$lang_word=!empty($lang)?$lang[$key]:'';
+	return $key?$lang[$key]:$key;
+}
+
+
+/**
+ * 格式化变量输出
+ *
+ * @param mixed $var
+ * @param string $label
+ * @param boolean $echo
+ */
+function dump($var, $label = null, $echo = true)
+{
+	ob_start();
+	var_dump($var);
+	$output = ob_get_clean();
+	$output = preg_replace("/\]\=\>\n(\s+)/m", "] => ", $output);
+
+	$cli = preg_match("/cli/i", PHP_SAPI) ? true : false;
+
+	if ($cli === true) {
+		$output = PHP_EOL . $label . PHP_EOL . $output . PHP_EOL;
+	} else {
+		$output = '<pre>' . PHP_EOL . $label . PHP_EOL . $output . '</pre>' . PHP_EOL;
+	}
+
+	if ($echo) {
+		echo $output;
+	}
+
+	return $output;
+}
