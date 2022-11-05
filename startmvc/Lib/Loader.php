@@ -22,7 +22,7 @@ class Loader
         $parent = $class = new \ReflectionClass($className);
         $isController = false;
         while ($parent = $parent->getParentClass()) {
-            if ($parent->getName() == 'Startmvc\Core\Controller') {
+            if ($parent->getName() == 'Startmvc\Lib\Controller') {
                 $isController = true;
                 break;
             }

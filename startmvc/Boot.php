@@ -19,8 +19,8 @@ class Boot
 	public function run()
 	{
 		//版本号
-		define('SM_VERSION', '1.2.5');
-		define('SM_UPDATE', '20221030');
+		define('SM_VERSION', '1.2.6');
+		define('SM_UPDATE', '20221102');
 		if (phpversion() < 7) {
 			die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');			
 		}
@@ -84,10 +84,11 @@ class Boot
 		for ($i = 0; $i < count($argv); $i++) {
 			$argv[$i] = strip_tags(htmlspecialchars(stripslashes($argv[$i])));
 		}
+		
 		$this->startApp(MODULE, CONTROLLER, ACTION, $argv);
 	}
 	private function startApp($module, $controller, $action, $argv) {
-		$controller = APP_NAMESPACE.'\\' . ($module != '' ? $module . '\\' : '') . 'Controller\\' . $controller . 'Controller';
+		$controller = APP_NAMESPACE.'\\' .$module . '\\' . 'Controller\\' . $controller . 'Controller';
 		if (!class_exists($controller)) {
 			header("HTTP/1.1 404 Not Found");  
 			header("Status: 404 Not Found");

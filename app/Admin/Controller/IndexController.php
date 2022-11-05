@@ -9,6 +9,6 @@ class IndexController extends Controller{
 	public function indexAction (){
 		$admin="hello world!!admin";
 		$this->assign('admin',$admin);
-		//$this->view();
+		$this->view();
 	}
 }
