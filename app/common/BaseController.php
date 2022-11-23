@@ -7,16 +7,14 @@
  * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
  * @link      http://startmvc.com
  */
-
-
-if(!function_exists('test')){
-    /**
-     * 自定义函数
-     *
-     * @param      string  $para   The para
-     */
-    function test($para='') {
-        return '这是自定的test函数';
-    }
+ 
+namespace app\common;
+use startmvc\lib\Controller;
+use startmvc\lib\http\Session;
+class BaseController extends Controller{
+	public $category_list;
+	function __construct(){
+		parent::__construct();//调用父级构造方法
+		
+		}
 }
-
