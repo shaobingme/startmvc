@@ -6,7 +6,6 @@ StartMVC 能够帮助开发者以最小的学习成本快速构建 Web 应用，
 
 ### 优势
 
-
 - 轻量极致，可以高效地运行，打包后只有50k
 - 完全支持Composer,代码遵循ps2,psr4规范,方便扩展第三方类库。
 - 官方免费提供常用的扩展类库下载，拿来即用。
@@ -17,6 +16,11 @@ StartMVC 能够帮助开发者以最小的学习成本快速构建 Web 应用，
 - 系统结构简洁，代码优雅规范。
 - 学习成本低，只要有一点php基码就可以迅速上手。
 
+### 安装
+解压后上传到服务器项目目录下，就可以直接使用了。StartMVC支持主程序和WEB站点根目录分离。默认的站点根目录是public，请将域名绑定（指向）到public目录，访客无法访问到除public目录之外的文件，有更高的安全性。
+
+### composer安装
+    composer create-project shaobingme/startmvc
 
 ### 官网
 http://www.startmvc.com

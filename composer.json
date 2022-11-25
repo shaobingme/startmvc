@@ -1,6 +1,6 @@
 {
 	"name": "shaobingme/startmvc",
-    "description": "is A light-weight PHP MVC framework.",
+    "description": "A light-weight PHP MVC framework.",
     "type": "project",
     "keywords": [
 	"startmvc",
