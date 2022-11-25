@@ -1,4 +1,21 @@
 {
+	"name": "shaobingme/startmvc",
+    "description": "is A light-weight PHP MVC framework.",
+    "type": "project",
+    "keywords": [
+	"startmvc",
+	"php框架",
+	"framework",
+	"mvc"
+    ],
+    "homepage": "http://www.startmvc.com/",
+    "license": "Apache-2.0",
+    "authors": [
+        {
+            "name": "shaobing",
+            "email": "startmvc@126.com"
+        }
+    ],
 	"require": {
 		"php": ">=7.2.0"
 	},
