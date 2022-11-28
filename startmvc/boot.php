@@ -9,8 +9,8 @@
  */
  
 //版本号
-define('SM_VERSION', '1.3.1');
-define('SM_UPDATE', '20221125');
+define('SM_VERSION', '1.3.2');
+define('SM_UPDATE', '20221128');
 if (phpversion() < 7.2) {
 	die('程序要求PHP7+环境版本，当前环境为PHP' . phpversion() . ',请升级服务器环境');
 }
