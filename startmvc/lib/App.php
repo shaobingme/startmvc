@@ -60,10 +60,10 @@ class App
 		$pathInfo[0] = isset($pathInfo[0]) && $pathInfo[0] != '' ? $pathInfo[0] : config('default_module');
 		$pathInfo[1] = isset($pathInfo[1]) && $pathInfo[1] != '' ? $pathInfo[1] : config('default_controller');
 		$pathInfo[2] = isset($pathInfo[2]) && $pathInfo[2] != '' ? $pathInfo[2] : config('default_action');
-		define('MODULE', ucfirst($pathInfo[0]));
+		define('MODULE', $pathInfo[0]);
 		define('CONTROLLER', ucfirst($pathInfo[1]));
 		define('ACTION', $pathInfo[2]);
-		define('VIEW_PATH', APP_PATH.DS.MODULE . DS .'View');
+		define('VIEW_PATH', APP_PATH.DS.MODULE . DS .'view');
 		$argv = array_slice($pathInfo, 3);
 		for ($i = 0; $i < count($argv); $i++) {
 			$argv[$i] = strip_tags(htmlspecialchars(stripslashes($argv[$i])));
