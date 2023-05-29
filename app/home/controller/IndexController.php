@@ -2,7 +2,6 @@
 namespace app\home\controller;
 //use startmvc\lib\Controller;
 use app\common\BaseController;
-
 class IndexController extends BaseController{
 	
 	public function indexAction()

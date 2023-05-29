@@ -8,19 +8,18 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib\http;
-
-class Request extends Http
+namespace startmvc\lib;
+class Request
 {
     public static function get($key, $options = [])
     {
         $val = isset($_GET[$key]) ? $_GET[$key] : null;
-        return self::handling($val, $options);
+        return Http::handling($val, $options);
     }
     public static function post($key='', $options = [])
     {
         $val = isset($_POST[$key]) ? $_POST[$key] : $_POST;
-        return self::handling($val, $options);
+        return Http::handling($val, $options);
     }
     public static function postInput()
     {
@@ -56,5 +55,5 @@ class Request extends Http
     public static function isAjax()
     {
         return (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest');
-    }    
+    }
 }

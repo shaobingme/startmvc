@@ -8,24 +8,23 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib\http;
-
-class Session extends Http
+namespace startmvc\lib;
+class Session
 {
     public static function set($key, $val)
     {
-        $conf = self::getConfig();
+        $conf = Config::load();
         $_SESSION[$conf['session_prefix'] . $key] = $val;
     }
     public static function get($key, $options = [])
     {
-        $conf = self::getConfig();
+        $conf = Config::load();
         $val = isset($_SESSION[$conf['session_prefix'] . $key]) ? $_SESSION[$conf['session_prefix'] . $key] : null;
-        return self::handling($val, $options);
+        return Http::handling($val, $options);
     }
     public static function delete($key)
     {
-        $conf = self::getConfig();
+        $conf = Config::load();
         unset($_SESSION[$conf['session_prefix'] . $key]);
     }
 }

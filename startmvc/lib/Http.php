@@ -8,14 +8,11 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib\http;
+namespace startmvc\lib;
 
 class Http
 {
-    public static function getConfig()
-    {
-        return include ROOT_PATH . '/config/common.php';
-    }
+
     public static function handling($val, $options = [])
     {
         $default = isset($options['default']) ? $options['default'] : '';
@@ -32,7 +29,7 @@ class Http
 	                break;
 	            case 'float':
 	                $val = (float)$val;
-	                break;                
+	                break;
 	            case 'array':
 	                $val = (array)$val;
 	                break;

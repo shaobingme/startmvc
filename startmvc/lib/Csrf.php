@@ -8,8 +8,7 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib\http;
-
+namespace startmvc\lib;
 class Csrf
 {
     public static function token(){

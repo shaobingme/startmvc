@@ -8,9 +8,8 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib\http;
-
-class Cookie extends Http
+namespace startmvc\lib;
+class Cookie
 {
     public static function set($key, $val, $options = [])
     {
@@ -19,14 +18,14 @@ class Cookie extends Http
         $domain = isset($options['domain']) ? $options['domain'] : null;
         $secure = isset($options['secure']) ? $options['secure'] : false;
         $httponly = isset($options['httponly']) ? $options['httponly'] : true;
-        $conf = self::getConfig();
+        $conf = Config::load();
         setcookie($conf['cookie_prefix'] . $key, $val, $expire, $path, $domain, $secure, $httponly);
     }
     public static function get($key, $options = [])
     {
-        $conf = self::getConfig();
+        $conf = Config::load();
         $val = isset($_COOKIE[$conf['cookie_prefix'] . $key]) ? $_COOKIE[$conf['cookie_prefix'] . $key] : null;
-        return self::handling($val, $options);
+        return Http::handling($val, $options);
     }
     public static function delete($key, $options = [])
     {
@@ -34,7 +33,7 @@ class Cookie extends Http
         $domain = isset($options['domain']) ? $options['domain'] : null;
         $secure = isset($options['secure']) ? $options['secure'] : false;
         $httponly = isset($options['httponly']) ? $options['httponly'] : true;
-        $conf = self::getConfig();
+        $conf = Config::load();
         setcookie($conf['cookie_prefix'] . $key, '', time()-1, $path, $domain, $secure, $httponly);
     }
 }
