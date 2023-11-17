@@ -91,10 +91,11 @@ abstract class Controller
 	 * 调用视图
 	 */
 	 
-	protected function display($tplfile = null)
+	protected function display($tplfile = null,$data=array())
 	{
-		$this->view->display($tplfile);
+		$this->view->display($tplfile,$data);
 	}
+	
 	/**
 	 * 调用内容
 	 */

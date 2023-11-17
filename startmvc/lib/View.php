@@ -42,7 +42,7 @@ class view{
 	}
 
 	//支持多级目录
-	public function display($tpl=''){
+	public function display($tpl='',array $data){
 		if ($tpl == '') {
 			$tpl = strtolower(CONTROLLER . '_' . ACTION);
 		}
@@ -55,6 +55,7 @@ class view{
 		if (!file_exists($tpl_real)) {
 			throw new \Exception($tpl_real.' 模板文件不存在');
 		}
+		
 		$tplCacheDir = $this->tpl_compile_dir . dirname($tpl) . '/';
 		$compiled_file = $tplCacheDir . base64_encode(MODULE.$tpl) . '.%%.php';
 
@@ -67,6 +68,11 @@ class view{
 			$compiled_contents = $this->_compile(file_get_contents($tpl_real));
 			file_put_contents($compiled_file, $compiled_contents, LOCK_EX);
 		}
+		
+		if (!empty($data)) {
+			$this->_tpl_vars = array_merge_recursive($this->_tpl_vars, $data);
+		}
+		extract($this->_tpl_vars);
 		include($compiled_file);
 		return $this;
 	}

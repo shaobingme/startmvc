@@ -11,6 +11,7 @@ class IndexController extends BaseController{
 		
 		//$res=$this->db->table('article')->getAll();
 		$this->assign($data);
+		//$this->display('',$data);
 		$this->display();
 	}
 	public function __call($name,$arg)
