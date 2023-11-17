@@ -9,6 +9,7 @@
  */
 return [
     'debug' => true,	//Debug模式，开发过程中开启，生产环境中请关闭
+    'trace' => true,	//是否开启调试追踪，生产环境中请关闭
     'timezone' => 'PRC',	//系统时区
     'url_suffix' => '.html',	//URL后缀
     'default_module' => 'home',	//默认模块

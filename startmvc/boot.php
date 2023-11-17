@@ -13,8 +13,8 @@ if (version_compare(PHP_VERSION , '7.2', '<')) {
 }
 session_start();
 //版本号
-define('SM_VERSION', '1.3.4');
-define('SM_UPDATE', '20230529');
+define('SM_VERSION', '1.4.0');
+define('SM_UPDATE', '20231117');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');
 //应用目录
@@ -30,6 +30,8 @@ define('TEMP_PATH', ROOT_PATH . 'runtime'.DS.'temp'.DS);
 //配置文件路径
 define('CONFIG_PATH', ROOT_PATH . 'config'.DS);
 define('_STATIC_','/static/');
+define('START_MEMORY',  memory_get_usage());
+define('START_TIME',  microtime(true));
 if (file_exists(ROOT_PATH.'vendor'.DS.'autoload.php')) {
 	require_once ROOT_PATH.'vendor'.DS.'autoload.php'; //composer自动加载
 } else {

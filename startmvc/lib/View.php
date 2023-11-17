@@ -53,7 +53,7 @@ class view{
 		$tpl_real = $this->tpl_template_dir . $tpl;
         // 模板文件不存在直接返回
 		if (!file_exists($tpl_real)) {
-			die($tpl_real.' 模板文件不存在');
+			throw new \Exception($tpl_real.' 模板文件不存在');
 		}
 		$tplCacheDir = $this->tpl_compile_dir . dirname($tpl) . '/';
 		$compiled_file = $tplCacheDir . base64_encode(MODULE.$tpl) . '.%%.php';

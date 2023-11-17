@@ -72,7 +72,7 @@ abstract class Controller
 		if(is_file($lang_path)){
 			$lang=include $lang_path;
 		}else{
-			die('语言包文件不存在');
+			throw new \Exception('语言包文件不存在');
 		}
 		return $key?$lang[$key]:$key;
 

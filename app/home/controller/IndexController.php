@@ -8,6 +8,8 @@ class IndexController extends BaseController{
 	{
 		$data['title'] = '超轻量php框架-欢迎使用Startmvc';
 		$data['content'] = 'Hello StartMVC!';
+		
+		//$res=$this->db->table('article')->getAll();
 		$this->assign($data);
 		$this->display();
 	}

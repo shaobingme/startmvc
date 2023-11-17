@@ -1132,6 +1132,22 @@ class Sql implements SqlInterface
         return $this->fetch($type, $argument, true);
     }
 
+
+    // 记录 sql 运行过程
+    protected function trace($res, $startTime, $sql = null)
+    {
+        if ($sql === null) {
+            $sql = $this->sql;
+        }
+
+        $sqlRec = [];
+        $sqlRec[0] = $res != FALSE ? 'success' : 'false';
+        $sqlRec[1] = $sql;
+        $sqlRec[2] = round((microtime(true) - $startTime) * 1000, 2);
+        $sqlRec[3] = $res ? '' : $this->error();
+        $GLOBALS['traceSql'][] = $sqlRec;
+    }
+
     /**
      * @param string     $query
      * @param array|bool $all
@@ -1142,6 +1158,7 @@ class Sql implements SqlInterface
      */
     public function query($query, $all = true, $type = null, $argument = null)
     {
+	    $startTime = microtime(true);//追踪添加
         $this->reset();
 
         if (is_array($all) || func_num_args() === 1) {
@@ -1209,6 +1226,7 @@ class Sql implements SqlInterface
         }
 
         $this->queryCount++;
+        $this->trace($this->result, $startTime, $this->query);//追踪添加
         return $this->result;
     }
 

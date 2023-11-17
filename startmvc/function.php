@@ -24,7 +24,7 @@ function lang($key) {
 	if(is_file($lang_path)){
 		$lang=include $lang_path;
 	}else{
-		die('语言包文件不存在');
+		throw new \Exception('语言包文件不存在');
 	}
 	$lang_word=!empty($lang)?$lang[$key]:'';
 	return $key?$lang[$key]:$key;

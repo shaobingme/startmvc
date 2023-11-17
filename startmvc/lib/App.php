@@ -9,6 +9,7 @@
  */
  
 namespace startmvc\lib;
+
 class App
 {
 	public $conf;
@@ -18,8 +19,17 @@ class App
 	}
 	public function run()
 	{
+        //自定义异常
+        set_error_handler([$this,'errorHandler']);
+        set_exception_handler([$this,'exceptionHandler']);
+        
 		$this->loadFunction();//加载自定义函数
 		$this->getRoute();
+		//开启调试追踪
+        if (config('trace')) {
+            include __DIR__.'/tpl/trace.php';
+        }
+
 
 	}
 
@@ -65,6 +75,9 @@ class App
 		define('ACTION', $pathInfo[2]);
 		define('VIEW_PATH', APP_PATH.DS.MODULE . DS .'view');
 
+		// 用于运行追踪
+		$GLOBALS['traceSql'] = [];
+
 		$argv = array_map(function($arg) {
 			return strip_tags(htmlspecialchars(stripslashes($arg)));
 		}, array_slice($pathInfo, 3));
@@ -78,11 +91,41 @@ class App
 	private static function startApp($module, $controller, $action, $argv) {
 		$controller = APP_NAMESPACE . "\\{$module}\\controller\\{$controller}Controller";
 		if (!class_exists($controller)) {
-			die($controller.'控制器不存在');
+			throw new \Exception('控制器不存在');
+			//die($controller.'控制器不存在');
 		}
 		$action .= 'Action';
 		Loader::make($controller, $action, $argv);
 	}
+	/**
+	 * 自定义错误处理触发错误
+	 */
+	 public static function errorHandler($level, $message, $file = '', $line)
+	{
+		if (error_reporting() !== 0) {
+			throw new \Exception('错误提示：'.$message, 0, $level, $file, $line);
+		}
+	}
+	/**
+	 * 异常错误处理
+	 */
+    public static function exceptionHandler($exception)
+    {
+        // Code is 404 (not found) or 500 (general error)
+        $code = $exception->getCode();
+        if ($code != 404) {
+            $code = 500;
+        }
+        http_response_code($code);
+        if (config('debug')) {
+            include 'tpl/debug.php';
+            //var_dump($exception);
+        } else {
+            //$log = new Log();
+            //$log->debug($exception->getMessage() . '\n' . $exception->getFile() . '\n' . $exception->getLine());
+            return $code;
+        }
+    }
 
 
 }
