@@ -9,8 +9,8 @@
  */
  
 namespace app\common;
-use startmvc\lib\Controller;
-use startmvc\lib\http\Session;
+use startmvc\lib\controller;
+use startmvc\lib\Session;
 class BaseController extends Controller{
 	public $category_list;
 	function __construct(){

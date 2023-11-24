@@ -9,7 +9,7 @@
  */
  
 namespace startmvc\lib;
-use startmvc\lib\http\Request;
+use startmvc\lib\Request;
 use startmvc\lib\db\Sql;
 use startmvc\lib\Loader;
 use startmvc\lib\View;
@@ -81,19 +81,18 @@ abstract class Controller
 	/**
 	 * 为模板对象赋值
 	 */
-	protected function assign($name, $data=null)
+	protected function assign($name=[], $data='')
 	{
 		$this->view->assign($name, $data);
-
 	}
 
 	/**
 	 * 调用视图
 	 */
 	 
-	protected function display($tplfile = null,$data=array())
+	protected function display($tplfile='',$data=[])
 	{
-		$this->view->display($tplfile,$data);
+		echo $this->view->display($tplfile,$data);
 	}
 	
 	/**

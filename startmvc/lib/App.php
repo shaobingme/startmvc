@@ -100,10 +100,10 @@ class App
 	/**
 	 * 自定义错误处理触发错误
 	 */
-	 public static function errorHandler($level, $message, $file = '', $line)
+	 public static function errorHandler($level,$message, $file, $line)
 	{
 		if (error_reporting() !== 0) {
-			throw new \Exception('错误提示：'.$message, 0, $level, $file, $line);
+			throw new \Exception('错误提示：'.$message, $level);
 		}
 	}
 	/**
