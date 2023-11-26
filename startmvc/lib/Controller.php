@@ -45,7 +45,7 @@ abstract class Controller
 		//}else{
 		   // $model = CORE_PATH.'\\Model';
 		//}
-		$model = APP_NAMESPACE.'\\' . $module . '\\'. 'Model\\' . $model . 'Model';
+		$model = APP_NAMESPACE.'\\' . $module . '\\'. 'model\\' . $model . 'Model';
 		return Loader::getInstance($model);
 	}
 	/**
@@ -68,7 +68,7 @@ abstract class Controller
 	{
 		static $lang = array();
 		$locale = $this->conf['locale']?:'zh_cn';
-		$lang_path = APP_PATH .MODULE.'/Language/'.$locale.'.php';
+		$lang_path = APP_PATH .MODULE.'/language/'.$locale.'.php';
 		if(is_file($lang_path)){
 			$lang=include $lang_path;
 		}else{

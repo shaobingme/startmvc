@@ -75,3 +75,16 @@ function config($name = '', $value = '',$file='common') {
 	}
 	return $config[$name]=$value;
 }
+
+/**
+ * url的方法
+ */
+function url($url){
+	$url = $url . config('url_suffix');
+	if (config('urlrewrite')) {
+		$url = '/' . $url;
+	} else {
+		$url = '/index.php/' . $url;
+	}
+	return str_replace('%2F', '/', urlencode($url));
+}
