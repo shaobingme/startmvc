@@ -20,9 +20,10 @@ class App
 	public function run()
 	{
         //自定义异常
-        set_error_handler([$this,'errorHandler']);
-        set_exception_handler([$this,'exceptionHandler']);
-        
+        //set_error_handler([$this,'errorHandler']);
+        //set_exception_handler([$this,'exceptionHandler']);
+        Exception::init(); //错误处理初始化
+
 		$this->loadFunction();//加载自定义函数
 		$this->getRoute();
 		//开启调试追踪
@@ -103,7 +104,8 @@ class App
 	 public static function errorHandler($level,$message, $file, $line)
 	{
 		if (error_reporting() !== 0) {
-			throw new \Exception('错误提示：'.$message, $level);
+			$errorMessage = "错误提示：{$message}，文件：{$file}，行号：{$line}";
+			throw new \Exception($errorMessage, $level);
 		}
 	}
 	/**

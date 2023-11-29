@@ -14,8 +14,5 @@ class IndexController extends BaseController{
 		//$this->display('',$data);
 		$this->display();
 	}
-	public function __call($name,$arg)
-	{
-		$this->content("走丢了。。。。。。。。");
-	}
+
 }
