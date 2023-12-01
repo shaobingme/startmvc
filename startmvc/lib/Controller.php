@@ -61,22 +61,6 @@ abstract class Controller
 		}
 		return str_replace('%2F', '/', urlencode($url));
 	}
-	/**
-	 * 语言调用
-	 */
-	protected function lang($key)
-	{
-		static $lang = array();
-		$locale = $this->conf['locale']?:'zh_cn';
-		$lang_path = APP_PATH .MODULE.'/language/'.$locale.'.php';
-		if(is_file($lang_path)){
-			$lang=include $lang_path;
-		}else{
-			throw new \Exception('语言包文件不存在');
-		}
-		return $key?$lang[$key]:$key;
-
-	}
 
 	/**
 	 * 为模板对象赋值

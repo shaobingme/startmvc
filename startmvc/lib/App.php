@@ -19,17 +19,17 @@ class App
 	}
 	public function run()
 	{
-        //自定义异常
-        //set_error_handler([$this,'errorHandler']);
-        //set_exception_handler([$this,'exceptionHandler']);
-        Exception::init(); //错误处理初始化
+		//自定义异常
+		//set_error_handler([$this,'errorHandler']);
+		//set_exception_handler([$this,'exceptionHandler']);
+		Exception::init(); //加载自定义错误及异常处理
 
 		$this->loadFunction();//加载自定义函数
 		$this->getRoute();
 		//开启调试追踪
-        if (config('trace')) {
-            include __DIR__.'/tpl/trace.php';
-        }
+		if (config('trace')) {
+			include __DIR__.'/tpl/trace.php';
+		}
 
 
 	}
@@ -111,23 +111,23 @@ class App
 	/**
 	 * 异常错误处理
 	 */
-    public static function exceptionHandler($exception)
-    {
-        // Code is 404 (not found) or 500 (general error)
-        $code = $exception->getCode();
-        if ($code != 404) {
-            $code = 500;
-        }
-        http_response_code($code);
-        if (config('debug')) {
-            include 'tpl/debug.php';
-            //var_dump($exception);
-        } else {
-            //$log = new Log();
-            //$log->debug($exception->getMessage() . '\n' . $exception->getFile() . '\n' . $exception->getLine());
-            return $code;
-        }
-    }
+	public static function exceptionHandler($exception)
+	{
+		// Code is 404 (not found) or 500 (general error)
+		$code = $exception->getCode();
+		if ($code != 404) {
+			$code = 500;
+		}
+		http_response_code($code);
+		if (config('debug')) {
+			include 'tpl/debug.php';
+			//var_dump($exception);
+		} else {
+			//$log = new Log();
+			//$log->debug($exception->getMessage() . '\n' . $exception->getFile() . '\n' . $exception->getLine());
+			return $code;
+		}
+	}
 
 
 }

@@ -13,8 +13,8 @@ if (version_compare(PHP_VERSION , '7.2', '<')) {
 }
 session_start();
 //版本号
-define('SM_VERSION', '1.5.2');
-define('SM_UPDATE', '20231130');
+define('SM_VERSION', '1.5.3');
+define('SM_UPDATE', '20231201');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');
 //应用目录

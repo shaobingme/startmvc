@@ -8,26 +8,42 @@
  * @link	  http://startmvc.com
  */
 
+use startmvc\lib\Config;
 
 /**
  * 语言包调用
  *
- * @param string $str
+ * @param string $key
+ * @param string $default (可选) 默认值
  * @return string
+ * @throws \Exception
  */
-use startmvc\lib\Config;
-function lang($key) {
-	$lang = array();
+function lang($key, $default = '') {
+	static $langCache = [];
+	if (empty($key)) {
+		return $default;
+	}
+	// 如果语言包已经加载过，则直接返回对应的值
+	if (isset($langCache[$key])) {
+		return $langCache[$key];
+	}
+
 	$conf = include ROOT_PATH . '/config/common.php';
-	$locale = $conf['locale']?:'zh_cn';
-	$lang_path = APP_PATH .MODULE.'/language/'.$locale.'.php';
-	if(is_file($lang_path)){
-		$lang=include $lang_path;
-	}else{
+	$locale = $conf['locale'] ?: 'zh_cn';
+	$langPath = APP_PATH . MODULE . '/language/' . $locale . '.php';
+
+	if (is_file($langPath)) {
+		$lang = include $langPath;
+		if (!empty($lang[$key])) {
+			$langCache[$key] = $lang[$key];
+			return $lang[$key];
+		}
+	} else {
 		throw new \Exception('语言包文件不存在');
 	}
-	$lang_word=!empty($lang)?$lang[$key]:'';
-	return $key?$lang[$key]:$key;
+
+	// 如果未找到对应的语言包键值，则返回默认值或者键名本身
+	return $default ?: $key;
 }
 
 

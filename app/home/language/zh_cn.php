@@ -1,4 +1,4 @@
-<?
+<?php
 //zh_cn 中文简体语言包
 
 return [
