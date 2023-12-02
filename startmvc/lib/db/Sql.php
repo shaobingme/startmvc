@@ -1077,6 +1077,7 @@ class Sql implements SqlInterface
      */
     public function exec()
     {
+	    $startTime = microtime(true);//追踪添加
         if (is_null($this->query)) {
             return null;
         }
@@ -1086,7 +1087,7 @@ class Sql implements SqlInterface
             $this->error = $this->pdo->errorInfo()[2];
             $this->error();
         }
-
+        $this->trace($query, $startTime, $this->query);//追踪添加
         return $query;
     }
 
@@ -1099,6 +1100,7 @@ class Sql implements SqlInterface
      */
     public function fetch($type = null, $argument = null, $all = false)
     {
+	    $startTime = microtime(true);//追踪添加
         if (is_null($this->query)) {
             return null;
         }
@@ -1118,6 +1120,7 @@ class Sql implements SqlInterface
 
         $result = $all ? $query->fetchAll() : $query->fetch();
         $this->numRows = is_array($result) ? count($result) : 1;
+        $this->trace($result, $startTime, $this->query);//追踪添加
         return $result;
     }
 
@@ -1144,7 +1147,7 @@ class Sql implements SqlInterface
         $sqlRec[0] = $res != FALSE ? 'success' : 'false';
         $sqlRec[1] = $sql;
         $sqlRec[2] = round((microtime(true) - $startTime) * 1000, 2);
-        $sqlRec[3] = $res ? '' : $this->error();
+        $sqlRec[3] = $res ? '' : $this->pdo->errorInfo()[2];;
         $GLOBALS['traceSql'][] = $sqlRec;
     }
 

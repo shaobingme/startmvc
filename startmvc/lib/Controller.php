@@ -127,8 +127,9 @@ abstract class Controller
 	/**
 	 * 跳转
 	 */
-	protected function redirect($url)
+	protected function redirect($url='')
 	{
+		$url=$url?:'/';
 		header('location:' . $url);
 		exit();
 	}
