@@ -1,6 +1,6 @@
 <?php
 namespace app\home\model;
-use startmvc\lib\Model;
+use startmvc\core\Model;
 
 class TestModel extends Model{
 

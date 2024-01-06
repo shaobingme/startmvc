@@ -7,8 +7,8 @@
  * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
  * @link      http://startmvc.com
  */
-namespace startmvc\lib;
-use startmvc\lib\db\Sql;
+namespace startmvc\core;
+use startmvc\core\Db;
 
 abstract class Model
 {
@@ -20,7 +20,7 @@ abstract class Model
 	{
 		$this->dbConf = include CONFIG_PATH . '/database.php';
 		if ($this->dbConf['default'] != '') {
-			$this->db= new Sql($this->dbConf['connections'][$this->dbConf['default']]);
+			$this->db= new Db($this->dbConf['connections'][$this->dbConf['default']]);
 		}
 
 	}
@@ -45,7 +45,7 @@ abstract class Model
 			$this->db->where($where);
 		}
 		if($order){
-			$this->db->orderBy($order);
+			$this->db->order($order);
 		}
 		if ($limit){
 			if(is_numeric($limit)){
@@ -56,7 +56,7 @@ abstract class Model
 			}
 		}
 
-		return $this->db->getAll($getsql);
+		return $this->db->get($getsql);
 	}
 	//更新数据
 	public function update($data,$where=[])

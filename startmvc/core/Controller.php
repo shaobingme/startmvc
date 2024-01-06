@@ -8,11 +8,12 @@
  * @link	  http://startmvc.com
  */
  
-namespace startmvc\lib;
-use startmvc\lib\Request;
-use startmvc\lib\db\Sql;
-use startmvc\lib\Loader;
-use startmvc\lib\View;
+namespace startmvc\core;
+use startmvc\core\Request;
+//use startmvc\core\db\Sql;
+use startmvc\core\Db;
+use startmvc\core\Loader;
+use startmvc\core\View;
 
 abstract class Controller
 {
@@ -27,11 +28,10 @@ abstract class Controller
 		if($this->conf['db_auto_connect']){
 			$dbConf = include CONFIG_PATH . '/database.php';
 			if ($dbConf['default'] != '') {
-				$this->db= new Sql($dbConf['connections'][$dbConf['default']]);
+				//$this->db= new Sql($dbConf['connections'][$dbConf['default']]);
+				$this->db= new Db($dbConf['connections'][$dbConf['default']]);
+				
 			}
-		}
-		if($this->conf['cache_status']){
-			$this->cache=new \startmvc\lib\Cache($this->conf['cache_type'],$this->conf['cache_host'],$this->conf['cache_port']);
 		}
 		$this->view = new View();
 	}
@@ -107,7 +107,7 @@ abstract class Controller
 			];
 			$this->json($data);
 		}else{
-			include '../startmvc/lib/location.php';
+			include __DIR__.DS.'tpl/jump.php';
 			exit();
 		}
 

@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib;
+namespace startmvc\core;
 
 class Loader
 {
@@ -22,7 +22,7 @@ class Loader
         $parent = $class = new \ReflectionClass($className);
         $isController = false;
         while ($parent = $parent->getParentClass()) {
-            if ($parent->getName() == 'startmvc\lib\Controller') {
+            if ($parent->getName() == 'startmvc\core\Controller') {
                 $isController = true;
                 break;
             }

@@ -8,7 +8,7 @@
  * @link	  http://startmvc.com
  */
 
-use startmvc\lib\Config;
+use startmvc\core\Config;
 
 /**
  * 语言包调用

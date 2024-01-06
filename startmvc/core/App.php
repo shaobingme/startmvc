@@ -8,7 +8,7 @@
  * @link	  http://startmvc.com
  */
  
-namespace startmvc\lib;
+namespace startmvc\core;
 
 class App
 {
@@ -74,7 +74,7 @@ class App
 		define('MODULE', $pathInfo[0]);
 		define('CONTROLLER', ucfirst($pathInfo[1]));
 		define('ACTION', $pathInfo[2]);
-		define('VIEW_PATH', APP_PATH.DS.MODULE . DS .'view');
+		define('VIEW_PATH', APP_PATH.MODULE . DS .'view');
 
 		// 用于运行追踪
 		$GLOBALS['traceSql'] = [];

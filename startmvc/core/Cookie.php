@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib;
+namespace startmvc\core;
 class Cookie
 {
     public static function set($key, $val, $options = [])

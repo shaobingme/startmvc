@@ -1,7 +1,7 @@
 <?php
 namespace app\admin\controller;
 use app\common\BaseController;
-use startmvc\lib\Controller;
+use startmvc\core\Controller;
 class IndexController extends Controller{
 
 	public function indexAction(){

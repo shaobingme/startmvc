@@ -7,7 +7,7 @@
  * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
  * @link      http://startmvc.com
  */
-namespace startmvc\lib;
+namespace startmvc\core;
 class Validator
 {
     /**

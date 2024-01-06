@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
  
-namespace startmvc\lib;
+namespace startmvc\core;
 class Pagination{
     public $theme,$header,$first,$last,$prev,$next,$currentClass;
     function __construct (array $config=[]){

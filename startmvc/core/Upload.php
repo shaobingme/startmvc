@@ -8,7 +8,7 @@
  * @link	  http://startmvc.com
  */
  
-namespace startmvc\lib;
+namespace startmvc\core;
 class Upload{
 	public $maxSize, $exts, $savePath, $urlPath, $autoSub, $autoName, $replace;
 	function __construct(array $config = []){

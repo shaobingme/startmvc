@@ -13,14 +13,14 @@ if (version_compare(PHP_VERSION , '7.2', '<')) {
 }
 session_start();
 //版本号
-define('SM_VERSION', '1.5.5');
-define('SM_UPDATE', '20231203');
+define('SM_VERSION', '2.0.0');
+define('SM_UPDATE', '20240106');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');
 //应用目录
 define('APP_PATH', ROOT_PATH . 'app'.DS);
-//公共入口目录
-define('BASE_PATH', dirname(__FILE__) .DS);
+//公共入口目录(web站点目录)
+define('BASE_PATH', dirname($_SERVER['SCRIPT_FILENAME']).DS);
 //框架目录
 define('CORE_PATH', ROOT_PATH . 'startmvc'.DS);
 //缓存路径
@@ -41,5 +41,5 @@ require_once(CORE_PATH . 'function.php');//加载系统内置函数
 date_default_timezone_set(config('timezone'));
 error_reporting(config('debug') ? E_ALL : 0);
 
-$app = new startmvc\lib\App;
+$app = new startmvc\core\App;
 $app->run();

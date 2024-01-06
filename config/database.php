@@ -1,6 +1,5 @@
 <?php
 // 数据库连接配置,支持mysql,sqlite,pgsql,oracle
-
 return [
 	'default'	=>	'mysql',//指定数据库类型
 	'connections'	=>	[
@@ -13,7 +12,7 @@ return [
 			'charset'	=> 'utf8',//数据库字符集
 			'port' => 3306,  //数据库端口
 			'collation'	=> 'utf8_general_ci',//数据表编码
-			'prefix'	 => 'sm_'//数据表前缀
+			'prefix'	 => 'sm_',//数据表前缀
 		],
 		'sqlite'	=>	[
 			'driver' => 'sqlite',//数据库类型
