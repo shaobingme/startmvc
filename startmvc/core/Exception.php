@@ -39,6 +39,10 @@ class Exception
 		//	$errfile,
 		//	$errline
 		//);
+		// 如果错误被 @ 符号抑制，则不处理错误
+		if (error_reporting() === 0) {
+			return;
+		}
 		$output=['类型:'.$errno,'错误:'.$errstr,'文件:'.$errfile,'行号:'.$errline];
 		// 输出或记录格式化后的错误信息
 		//$this->logError($msg);
