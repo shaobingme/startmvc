@@ -59,6 +59,8 @@ class Db
     
     private $cache=null;
     private $cacheType=null;
+    
+    private $prefix;
 
     /**
      * __construct
@@ -67,7 +69,7 @@ class Db
      */
     public function __construct($config = null)
     {
-        $this->config = [
+        $defaultConfig = [
             'host'      => 'localhost',
             'driver'    => 'mysql',
             'database'  => '',
@@ -77,14 +79,9 @@ class Db
             'collation' => 'utf8_unicode_ci',
             'prefix' => '',
         ];
-
-        foreach($this->config as $k => $v) {
-            $this->config[$k] = !isset($config[$k]) 
-                ? $this->config[$k] 
-                : $config[$k];
-        }
-
-
+		$this->config = array_merge($defaultConfig, $config);
+		$this->prefix=$this->config['prefix'];
+		
         $dsnList = [
             'mysql'  => "dbname={$this->config['database']};host={$this->config['host']}",
             'sqlite' => "{$this->config['database']}"
@@ -339,7 +336,8 @@ class Db
      * @param string $join
      * @return $this
      */
-    protected function join($from, $field = null, $params = null, $join = 'INNER'){
+    public function join($from, $field = null, $params = null, $join = 'INNER'){
+	    $from=$this->prefix.$from;
         if(!is_null($field)){
             if(!is_null($params))
                 $field = $field . '=' . $params;

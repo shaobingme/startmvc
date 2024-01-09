@@ -17,7 +17,8 @@ class Cache {
 		$config=Config::load('cache');
 		$driveName=$driveName??$config['drive'];
 		$params=$params?$params:$config[$driveName];
-	    $classFile = __DIR__ . DS .'cache'.DS. $driveName . '.php';
+	    $classFile = __DIR__ . DS .'cache'.DS. ucfirst($driveName) . '.php';
+	    
 	    // 检查类文件是否存在
 	    if (file_exists($classFile)) {
 	        // 加载类文件
@@ -33,7 +34,7 @@ class Cache {
 	        }
 	    } else {
 	        // 处理文件不存在的情况
-	        throw new \Exception("文件 $className 没有找到");
+	        throw new \Exception("文件 $classFile 没有找到");
 	    }
 	}
   public function set(string $key, $val) {
