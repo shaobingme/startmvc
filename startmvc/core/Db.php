@@ -1312,7 +1312,8 @@ class Db
 
 	    $startTime = microtime(true);//追踪添加
 
-        if(!$fetchMode && $this->fetchMode) $fetchMode = $this->fetchMode;
+        //if(!$fetchMode && $this->fetchMode) $fetchMode = $this->fetchMode;
+        if($fetchMode===null && $this->fetchMode) $fetchMode = $this->fetchMode;
 
         if($this->pager){
             if($totalRecord = $this->pagerRows ? $this->pagerRows : $this->pdo->query(str_replace('SELECT', 'SELECT COUNT(*)', $this->getReadQueryRaw(['select', 'limitOffset', 'order'])))->fetchColumn()){
@@ -1330,6 +1331,7 @@ class Db
         $params = $this->getReadParams();
         //读取缓存
         $hash   = $this->getReadHash($query, join((array)$params), $fetch, $fetchMode);
+
 		if($this->cache && $cached = $this->cache->get($hash)){
 			$this->killQuery($query, $params, sizeof((array)$cached), $this->cacheType);
 			return $cached;
@@ -1394,10 +1396,24 @@ class Db
      * @return void
      */
     public function value($column){
-        $this->selectFlush($column);
-        return $this->readQuery('fetchColumn', 0);
+    	$this->selectFlush($column);
+    	return $this->readQuery('fetchColumn', 0);
     }
-            
+
+    /**
+     * value
+     *
+     * @param mixed $column
+     * @return void
+     */
+    //public function value1($column){
+    //    $data = $this->limit(1)->column($column);
+    //    if (is_array($data) && isset($data[0])) {
+    //        return $data[0];
+    //    }
+    //    return false;
+    //}
+
     /**
      * column/pluck
      *
