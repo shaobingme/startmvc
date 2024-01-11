@@ -52,6 +52,9 @@ class App
 	private static function getRoute()
 	{
 		$pathInfo = isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : (isset($_SERVER['ORIG_PATH_INFO']) ? $_SERVER['ORIG_PATH_INFO'] : (isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : ''));
+		if (!function_exists('mb_convert_encoding')) {  
+		    die('mb_convert_encoding() function is not available.');  
+		}
 		$pathInfo = str_replace('/index.php', '', mb_convert_encoding($pathInfo, 'UTF-8', 'GBK'));
 		$pathInfo = str_replace(config('url_suffix'), '', substr($pathInfo, 1));
 		$route = require_once(CONFIG_PATH.'route.php');
@@ -92,10 +95,10 @@ class App
 	private static function startApp($module, $controller, $action, $argv) {
 		$controller = APP_NAMESPACE . "\\{$module}\\controller\\{$controller}Controller";
 		if (!class_exists($controller)) {
-			throw new \Exception('控制器不存在');
+			throw new \Exception($controller.'控制器不存在');
 			//die($controller.'控制器不存在');
 		}
-		$action .= 'Action';
+		$action .= 'Action';		
 		Loader::make($controller, $action, $argv);
 	}
 	/**

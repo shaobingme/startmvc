@@ -20,6 +20,8 @@ class view{
 	//public $tpl_check = true;
 	public $vars = array();
 	public $compiled_file='';
+	protected $left_delimiter_quote;
+	protected $right_delimiter_quote;
 
 
 	private static $rules = [
@@ -71,7 +73,7 @@ class view{
 		$this->tpl_template_dir = APP_PATH . DS .MODULE . DS. 'view'.DS;
 		$this->tpl_compile_dir = TEMP_PATH.MODULE.DS;
 		$this->left_delimiter_quote = preg_quote($this->tpl_left_delimiter);
-		$this->right_delimiter_quota = preg_quote($this->tpl_right_delimiter);
+		$this->right_delimiter_quote = preg_quote($this->tpl_right_delimiter);
 	}
 
 	//模板赋值
@@ -154,6 +156,5 @@ class view{
 		}
 
 	}
-
 
 }

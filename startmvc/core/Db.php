@@ -61,6 +61,7 @@ class Db
     private $cacheType=null;
     
     private $prefix;
+    private $redisActive;
 
     /**
      * __construct
