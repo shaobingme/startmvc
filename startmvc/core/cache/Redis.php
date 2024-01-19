@@ -58,7 +58,7 @@ class Redis {
 
     public function has(string $key): bool {
         return $this->get($key) !== null;
-    } h
+    }
 
     public function delete($key) {
         $cacheKey = $this->getKey($key);
