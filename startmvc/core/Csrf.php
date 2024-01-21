@@ -9,21 +9,32 @@
  */
  
 namespace startmvc\core;
+
 class Csrf
 {
-    public static function token(){
-        $token = base64_encode(md5(time() . rand(1000,9999)));
-        Session::set('csrf_token', $token);
-        return $token;
-    }
-    public static function check(){
-        if (Request::post('__csrf_token__') == '' || Request::post('__csrf_token__') != Session::get('csrf_token')) {
-            return false;
-        } else {
-            return true;
-        }
-    }
-    public static function unsetToken(){
-        Session::delete('csrf_token');
-    }
+	const CSRF_TOKEN_NAME = 'csrf_token';
+	public static function token()
+	{
+		$token = bin2hex(random_bytes(32)); // 更安全的随机令牌生成
+		Session::set(self::CSRF_TOKEN_NAME, $token);
+		return $token;
+	}
+
+	public static function check()
+	{
+		$postToken = Request::post(self::CSRF_TOKEN_NAME);
+		$sessionToken = Session::get(self::CSRF_TOKEN_NAME);
+		// 使用严格类型比较
+		if ($postToken === null || $postToken !== $sessionToken) {
+			return false; // 早期返回简化逻辑
+		}
+
+		self::unsetToken(); // 验证后删除令牌
+		return true;
+	}
+
+	public static function unsetToken()
+	{
+		Session::delete(self::CSRF_TOKEN_NAME);
+	}
 }

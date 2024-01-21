@@ -91,7 +91,7 @@ class view{
 
 	}
 
-	//支持多级目录
+	//视图渲染 支持多级目录
 	public function display($name='',$data=[]){
 		if ($name == '') {
 			$name = strtolower(CONTROLLER . '_' . ACTION);
