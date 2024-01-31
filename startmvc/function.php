@@ -104,3 +104,32 @@ function url($url){
 	}
 	return str_replace('%2F', '/', urlencode($url));
 }
+
+/**
+ * 获取客户端的真实IP地址
+ */
+function get_ip() {
+	// 优先检查HTTP_X_FORWARDED_FOR，因为它可能包含多个IP，我们取第一个非未知的IP
+	$ip = null;
+	if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+		$ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+		foreach ($ips as $tmp) {
+			$ip = trim($tmp);
+			if ($ip !== 'unknown') {
+				break;
+			}
+		}
+	}
+
+	// 如果没有通过HTTP_X_FORWARDED_FOR获取到IP，尝试其他可能的服务器变量
+	if (!$ip) {
+		$ip = $_SERVER['REMOTE_ADDR'] ?? $_SERVER['HTTP_CLIENT_IP'] ?? $_SERVER['HTTP_CDN_SRC_IP'] ?? '0.0.0.0';
+	}
+
+	// 验证IP地址格式，如果不是有效的IPv4或IPv6，返回默认值
+	if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6)) {
+		$ip = '0.0.0.0';
+	}
+
+	return $ip;
+}
