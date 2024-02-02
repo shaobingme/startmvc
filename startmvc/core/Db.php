@@ -89,7 +89,7 @@ class Db
         ];
 
         if(!array_key_exists($this->config['driver'], $dsnList)){
-            throw new \Exception('driver bulunamadı...');
+            throw new \Exception('Driver not found...');
             return;
         }
         
@@ -324,7 +324,7 @@ class Db
      */
     protected function tableBuild(){
         if(!$this->table)
-            throw new Exception('Tablo seçilmeden devam edilemez.');
+            throw new \Exception('Table cannot continue without being selected.');
         return $this->table;
     }
     
@@ -1529,14 +1529,14 @@ class Db
                     
                     // not null
                     if(!$structure['extra'] && !$structure['null'] && (!isset($data[$structure['field']]) || is_null($data[$structure['field']])))
-                        throw new Exception($structure['field'] . ' Not Null olarak tanımlanmış.');
+                        throw new \Exception($structure['field'] . ' is defined as Not Null.');
                         
                     // enum
                     if(strpos($structure['type'], 'enum') !== false):
                         if(isset($data[$structure['field']])):
                             preg_match_all("/'(.*?)'/", $structure['type'], $enumArray);
                             if(!in_array($data[$structure['field']], $enumArray[1])):
-                                throw new Exception($structure['field'] . ' için geçerli bir veri girilmedi.');
+                                throw new \Exception($structure['field'] . ' No valid data was entered.');
                             endif;
                         endif;
                     endif;
