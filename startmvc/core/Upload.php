@@ -10,15 +10,17 @@
  
 namespace startmvc\core;
 class Upload{
-	public $maxSize, $exts, $savePath, $urlPath, $autoSub, $autoName, $replace;
+	public $maxSize, $exts, $savePath, $urlPath, $autoSub, $filename,$autoName, $replace;
 	function __construct(array $config = []){
-		$this->maxSize = isset($config['maxSize']) ? $config['maxSize'] : 2097152;
+		$this->maxSize = isset($config['maxSize']) ? $config['maxSize']*1024 : 2097152;
 		$this->exts = isset($config['exts']) ? $config['exts'] : ['jpg', 'gif', 'png', 'jpeg'];
 		$this->savePath = isset($config['savePath']) ? $config['savePath'] : '/wwwroot/upload';
 		$this->urlPath = isset($config['urlPath']) ? $config['urlPath'] : '/upload';
 		$this->autoSub = isset($config['autoSub']) ? $config['autoSub'] : true;
+		$this->filename = isset($config['filename']) ? $config['filename'] : '';
 		$this->autoName = isset($config['autoName']) ? $config['autoName'] : true;
 		$this->replace = isset($config['replace']) ? $config['replace'] : true;
+
 	}
 	function upload(){
 		$results = [];
@@ -83,10 +85,14 @@ class Upload{
 			}
 			if(!$this->mkd($saveDir))
 				return ['result' => false, 'error' => '上传目录没有写权限。'];
-			if($this->autoName)
+			if($this->filename){
+				$filename = $this->filename .'.'. $fileExt;
+			}elseif($this->autoName){
 				$filename = date('YmdHis') . rand(100, 999) . '.' . $fileExt;
-			else
+			}else{
 				$filename = $file['name'];
+			}
+					
 			$filePath = ROOT_PATH . '/' . $saveDir . $filename;
 			$urlPath = $saveUrl . $filename;
 			if(!$this->replace && file_exists($filePath))
