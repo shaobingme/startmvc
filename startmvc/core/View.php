@@ -94,7 +94,7 @@ class view{
 	//视图渲染 支持多级目录
 	public function display($name='',$data=[]){
 		if ($name == '') {
-			$name = strtolower(CONTROLLER . '_' . ACTION);
+			$name = strtolower(CONTROLLER . DS . ACTION);
 		}
 
 		$tplFile = $this->tpl_template_dir . $name .'.php';
