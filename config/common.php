@@ -19,5 +19,5 @@ return [
     'session_prefix' => '',	//Session前缀
     'cookie_prefix' => '',	//Cookie前缀
     'locale'  => 'zh_cn',	//指定默认语言，小写
-    'db_auto_connect'  => true,	//是否开启数据库自动连接
+    'db_auto_connect'  => false,	//是否开启数据库自动连接
 ];
