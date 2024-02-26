@@ -55,7 +55,7 @@ class App
 		if (!function_exists('mb_convert_encoding')) {  
 		    die('mb_convert_encoding() function is not available.');  
 		}
-		$pathInfo = str_replace('/index.php', '', mb_convert_encoding($pathInfo, 'UTF-8', 'GBK'));
+		$pathInfo = str_replace('/index.php', '', mb_detect_encoding($pathInfo, 'UTF-8, GBK') === 'GBK' ? mb_convert_encoding($pathInfo, 'UTF-8', 'GBK') : $pathInfo);
 		$pathInfo = str_replace(config('url_suffix'), '', substr($pathInfo, 1));
 		$route = require_once(CONFIG_PATH.'route.php');
 		$rule = array(
