@@ -13,7 +13,7 @@ namespace startmvc\core;
 class Upload {
     public $maxSize = 2097152; // 2 MB
     public $exts = ['jpg', 'gif', 'png', 'jpeg'];
-    public $savePath = '/public/upload';
+    public $savePath = BASE_PATH.'upload';
     public $urlPath = '/upload';
     public $autoSub = true;
     public $autoName = true;
@@ -64,13 +64,12 @@ class Upload {
             $saveDir .= $subDir;
             $saveUrl .= $subDir;
         }
-
-        if (!is_dir($saveDir) && !mkdir($saveDir, 0755, true)) {
+        if (!is_dir($saveDir)&&!mkdir($saveDir, 0755, true)) {
             return ['result' => false, 'error' => 'Failed to create directory'];
         }
 
         //$filename = $this->autoName ? uniqid() . '.' . $fileExt : $file['name'];
-        $filename = $this->fileName !== '' ? $this->fileName. $fileExt : ($this->autoName ? uniqid() . '.' . $fileExt : $file['name']);
+        $filename = $this->fileName !== '' ? $this->fileName.'.'. $fileExt : ($this->autoName ? uniqid() . '.' . $fileExt : $file['name']);
         $filePath = $saveDir . '/' . $filename;
         $urlPath = $saveUrl . '/' . $filename;
 
@@ -82,6 +81,6 @@ class Upload {
             return ['result' => false, 'error' => 'Failed to move uploaded file'];
         }
 
-        return ['result' => true, 'url' => $urlPath];
+        return ['result' => true, 'url' => $urlPath,'filename'=>$filename];
     }
 }
