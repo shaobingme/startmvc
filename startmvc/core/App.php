@@ -52,10 +52,11 @@ class App
 	private static function getRoute()
 	{
 		$pathInfo = isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : (isset($_SERVER['ORIG_PATH_INFO']) ? $_SERVER['ORIG_PATH_INFO'] : (isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : ''));
-		if (!function_exists('mb_convert_encoding')) {  
-		    die('mb_convert_encoding() function is not available.');  
-		}
-		$pathInfo = str_replace('/index.php', '', mb_detect_encoding($pathInfo, 'UTF-8, GBK') === 'GBK' ? mb_convert_encoding($pathInfo, 'UTF-8', 'GBK') : $pathInfo);
+		//if (!function_exists('mb_convert_encoding')) {  
+		//    die('mb_convert_encoding() function is not available.');  
+		//}
+		//$pathInfo = str_replace('/index.php', '', mb_detect_encoding($pathInfo, 'UTF-8, GBK') === 'GBK' ? mb_convert_encoding($pathInfo, 'UTF-8', 'GBK') : $pathInfo);
+		$pathInfo = str_replace('/index.php', '', $pathInfo);
 		$pathInfo = str_replace(config('url_suffix'), '', substr($pathInfo, 1));
 		$route = require_once(CONFIG_PATH.'route.php');
 		$rule = array(

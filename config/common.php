@@ -20,4 +20,5 @@ return [
     'cookie_prefix' => '',	//Cookie前缀
     'locale'  => 'zh_cn',	//指定默认语言，小写
     'db_auto_connect'  => false,	//是否开启数据库自动连接
+    'theme'  => '',	//指定模板子目录，方便多风格使用，为空时模板文件在view下
 ];

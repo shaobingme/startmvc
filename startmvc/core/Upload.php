@@ -48,12 +48,12 @@ class Upload {
 
     private function file($file) {
         if ($file['error'] !== UPLOAD_ERR_OK) {
-            return ['result' => false, 'error' => 'File upload error: ' . $file['error']];
+            return ['result' => false, 'error' => '文件上传错误： ' . $file['error']];
         }
 
         $fileExt = pathinfo($file['name'], PATHINFO_EXTENSION);
         if (!in_array($fileExt, $this->exts)) {
-            return ['result' => false, 'error' => 'Invalid file extension'];
+            return ['result' => false, 'error' => '无效的文件扩展名'];
         }
 
         $saveDir = rtrim($this->savePath, '/') . '/';
@@ -65,7 +65,7 @@ class Upload {
             $saveUrl .= $subDir;
         }
         if (!is_dir($saveDir)&&!mkdir($saveDir, 0755, true)) {
-            return ['result' => false, 'error' => 'Failed to create directory'];
+            return ['result' => false, 'error' => '创建目录失败'];
         }
 
         //$filename = $this->autoName ? uniqid() . '.' . $fileExt : $file['name'];
@@ -74,11 +74,11 @@ class Upload {
         $urlPath = $saveUrl . '/' . $filename;
 
         if (!$this->replace && file_exists($filePath)) {
-            return ['result' => false, 'error' => 'File already exists'];
+            return ['result' => false, 'error' => '文件已经存在'];
         }
 
         if (!move_uploaded_file($file['tmp_name'], $filePath)) {
-            return ['result' => false, 'error' => 'Failed to move uploaded file'];
+            return ['result' => false, 'error' => '移动上传文件失败'];
         }
 
         return ['result' => true, 'url' => $urlPath,'filename'=>$filename];
