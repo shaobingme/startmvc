@@ -4,3 +4,4 @@
 /app/test/
 /composer.json
 /composer.lock
+/app/home/model/TestModel.php

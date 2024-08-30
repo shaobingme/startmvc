@@ -27,18 +27,18 @@ abstract class Model
 
 
 	//查询单条数据
-	public function find($field="*",$where='',$getsql=false)
+	public function find($field="*",$where='')
 	{
-		$res=self::findAll($field,$where,'',1,$getsql);
+		$res=self::findAll($field,$where,'',1);
 		if($res){
 			return $res[0];
 		}
 	}
 	
 	//查询多条数据
-	public function findAll($field="*",$where=[],$order='',$limit='',$getsql=false)
+	public function findAll($field="*",$where=[],$order='',$limit='')
 	{
-		$prefix=$this->dbConf['connections'][$this->dbConf['default']]['prefix'];
+		//$prefix=$this->dbConf['connections'][$this->dbConf['default']]['prefix'];
 		$this->db->select($field);
 		$this->db->table($this->table);
 		if (!empty($where)) {
@@ -55,8 +55,7 @@ abstract class Model
 				$this->db->limit($limit_arr[0],$limit_arr[1]);
 			}
 		}
-
-		return $this->db->get($getsql);
+		return $this->db->get();
 	}
 	//更新数据
 	public function update($data,$where=[])

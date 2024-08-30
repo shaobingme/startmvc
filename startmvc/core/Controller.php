@@ -30,7 +30,6 @@ abstract class Controller
 			if ($dbConf['default'] != '') {
 				//$this->db= new Sql($dbConf['connections'][$dbConf['default']]);
 				$this->db= new Db($dbConf['connections'][$dbConf['default']]);
-				
 			}
 		}
 		$this->view = new View();

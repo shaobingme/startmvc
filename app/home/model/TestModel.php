@@ -4,7 +4,7 @@ use startmvc\core\Model;
 
 class TestModel extends Model{
 
-	protected $table='Test';//表名
+	protected $table='test';//表名
 	
 	function getData(){
 	    //return $this->find('*',3);
