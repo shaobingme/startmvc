@@ -1,4 +1,6 @@
 /runtime/
 *.log
 /app/test/
+/composer.json
+/vendor
 /app/home/model/TestModel.php

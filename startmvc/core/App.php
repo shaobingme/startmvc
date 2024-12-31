@@ -19,19 +19,19 @@ class App
 	}
 	public function run()
 	{
-		//自定义异常
-		//set_error_handler([$this,'errorHandler']);
-		//set_exception_handler([$this,'exceptionHandler']);
-		Exception::init(); //加载自定义错误及异常处理
-
-		$this->loadFunction();//加载自定义函数
-		$this->getRoute();
-		//开启调试追踪
+		Exception::init(); 
+		$this->loadFunction();
+		
+		// 加载Router类
+		$router = Router::getInstance();
+		$route = $router->parse();
+		
+		// 启动应用
+		self::startApp($route['module'], $route['controller'], $route['action'], $route['params']);
+		
 		if (config('trace')) {
 			include __DIR__.'/tpl/trace.php';
 		}
-
-
 	}
 
 	/**
@@ -45,49 +45,6 @@ class App
 				if(is_file($v)) require_once($v);
 			}
 		}
-	}
-	/**
-	 * 获取路由
-	 */
-	private static function getRoute()
-	{
-		$pathInfo = isset($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : (isset($_SERVER['ORIG_PATH_INFO']) ? $_SERVER['ORIG_PATH_INFO'] : (isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : ''));
-		//if (!function_exists('mb_convert_encoding')) {  
-		//    die('mb_convert_encoding() function is not available.');  
-		//}
-		//$pathInfo = str_replace('/index.php', '', mb_detect_encoding($pathInfo, 'UTF-8, GBK') === 'GBK' ? mb_convert_encoding($pathInfo, 'UTF-8', 'GBK') : $pathInfo);
-		$pathInfo = str_replace('/index.php', '', $pathInfo);
-		$pathInfo = str_replace(config('url_suffix'), '', substr($pathInfo, 1));
-		$route = require_once(CONFIG_PATH.'route.php');
-		$rule = array(
-			':any' => '.*?',
-			':num' => '[0-9]+'
-		);
-		foreach ($route as $r) {
-			if(strpos($r[0],'(:any)') !== false||strpos($r[0],'(:num)') !== false){ 
-				$pattern = '#^' . strtr($r[0], $rule) . '$#';//过滤参数
-			}else{
-				$pattern=$r[0];
-			}
-			$pathInfo = preg_replace($pattern, $r[1], $pathInfo);
-		}
-		$pathInfo = explode('/', $pathInfo);
-		$pathInfo[0] = isset($pathInfo[0]) && $pathInfo[0] != '' ? $pathInfo[0] : config('default_module');
-		$pathInfo[1] = isset($pathInfo[1]) && $pathInfo[1] != '' ? $pathInfo[1] : config('default_controller');
-		$pathInfo[2] = isset($pathInfo[2]) && $pathInfo[2] != '' ? $pathInfo[2] : config('default_action');
-		define('MODULE', $pathInfo[0]);
-		define('CONTROLLER', ucfirst($pathInfo[1]));
-		define('ACTION', $pathInfo[2]);
-		define('VIEW_PATH', APP_PATH.MODULE . DS .'view');
-
-		// 用于运行追踪
-		$GLOBALS['traceSql'] = [];
-
-		$argv = array_map(function($arg) {
-			return strip_tags(htmlspecialchars(stripslashes($arg)));
-		}, array_slice($pathInfo, 3));
-		
-		self::startApp(MODULE, CONTROLLER, ACTION, $argv);
 	}
 
 	/**
