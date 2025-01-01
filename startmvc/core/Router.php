@@ -70,12 +70,28 @@ class Router
     private function matchRoute($pathInfo)
     {
         foreach ($this->routes as $route) {
-            if (strpos($route[0], '(:') !== false) {
+            // 检查是否是正则表达式路由（以'/'开头）
+            if (isset($route[0]) && substr($route[0], 0, 1) === '/') {
+                if (preg_match($route[0], $pathInfo, $matches)) {
+                    // 替换捕获的参数
+                    $replacement = $route[1];
+                    for ($i = 1; $i < count($matches); $i++) {
+                        $replacement = str_replace('$'.$i, $matches[$i], $replacement);
+                    }
+                    return $replacement;
+                }
+            } 
+            // 原有的路由规则处理
+            else if (strpos($route[0], '(:') !== false) {
                 $pattern = '#^' . strtr($route[0], $this->patterns) . '$#';
-            } else {
-                $pattern = $route[0];
+                if (preg_match($pattern, $pathInfo)) {
+                    $pathInfo = preg_replace($pattern, $route[1], $pathInfo);
+                }
+            } 
+            // 普通字符串匹配
+            else if ($route[0] === $pathInfo) {
+                return $route[1];
             }
-            $pathInfo = preg_replace($pattern, $route[1], $pathInfo);
         }
         return $pathInfo;
     }
