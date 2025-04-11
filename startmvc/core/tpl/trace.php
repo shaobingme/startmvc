@@ -1,90 +1,121 @@
-<style type="text/css">
-.trace{width:100%;position:fixed;z-index:999;left:0;bottom:0;background-color:#fff;border-top:2px solid #ddd;display:none}
-.trace-item{width:31%;float:left;overflow:hidden;padding:10px 1%}
-.trace-item>.title{line-height:50px;font-size:15px;font-weight:bold;color:#666666;border-bottom:1px solid #E9E9E9}
-.trace-item>.text{line-height:2.2em;font-size:13px;padding:20px 0;height:158px;overflow-y:auto;margin:8px 0}
-.trace-item>.text .sql{border-bottom:1px dashed #E9E9E9;padding-bottom:10px;margin-bottom:10px}
-.trace-item>.text .sql span{color:#888888;font-size:16px}
-.trace-item>.text .sql i{color:#FF0036}
-.trace-item>.text .sql a{font-size:13px;color:#3688FF}
-.trace-item>.text .sql b{font-weight:700;font-size:13px}
-.green{color:green}
-.red{color:red}
-.trace-small{padding:8px;background-color:#f5f5f5;border:2px solid #4B476D;border-right:none;position:fixed;right:0;bottom:300px;border-bottom-left-radius:30px;border-top-left-radius:30px;box-shadow:1px 1px 18px #ddd;cursor:pointer;overflow:hidden}
-.trace-small img{float:left;width:38px;border-radius:38px}
-.trace-small-msg{margin:0 8px;float:left;overflow:hidden;font-size:13px;line-height:20px;color:#333}
-</style>
-
+<!-- startmvc/core/tpl/trace.php -->
 <?php
-/**
- * 时间、内存开销计算
- * @return array(耗时[毫秒], 消耗内存[K])
- */
-function cost()
-{
-    return array(
-        round((microtime(true) - START_TIME) * 1000, 2),
-        round((memory_get_usage() - START_MEMORY) / 1024, 2)
-    );
-}
-$cost = cost();
-?>
-<div class="trace" id="trace">
-    <div class="trace-item">
-        <div class="title">运行信息</div>
-        <div class="text">
-            远程时间 : <?php echo date('Y-m-d H:i:s'); ?><br />
-            运行耗时 : <?php echo $cost[0]; ?> 毫秒<br />
-            内存消耗 : <?php echo $cost[1]; ?> k<br />
-        </div>
-    </div>
-    <?php $includedFiles = get_included_files(); ?>
-    <div class="trace-item">
-        <div class="title">加载文件 [ <?= count($includedFiles); ?> ]</div>
-        <div class="text">
-            <?php
-            foreach ($includedFiles as $k => $file) {
-                echo ($k + 1) . '. ' . $file . '<br>';
-            } ?>
-        </div>
-    </div>
-    <div class="trace-item">
-        <div class="title">SQL 运行日志</div>
-        <div class="text">
-            <?php foreach ($GLOBALS['traceSql'] as $k => $sql): ?>
-                <div class="sql">
-                    <p>记录 <?php echo $k + 1; ?></p>
-                    结果：<?php if ($sql[0] == 'success') {
-                                echo '<b class="green">' . $sql[0] . '</b>';
-                            } else {
-                                echo '<b class="red">' . $sql[0] . '</b>';
-                            } ?> &nbsp;&nbsp;耗时：<?php echo $sql[2]; ?> 毫秒 <br />
-                    语句：<?php echo $sql[1]; ?><br />
-                    <?php if (!empty($sql[3])) {
-                        echo '错误：<i>' . $sql[3] . '</i>&nbsp;&nbsp;&nbsp;[ <a href="https://fanyi.baidu.com/#en/zh/' . urlencode($sql[3]) . '" target="_blank">翻译一下</a> ]';
-                    } ?>
-                </div>
-            <?php endforeach ?>
-        </div>
-    </div>
-</div>
-<div class="trace-small" onclick="showTrace()">
-    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAMAAABHPGVmAAAAA3NCSVQICAjb4U/gAAAAk1BMVEVLR22PjKT///9VUXXFxNDg3+ZzcI6lo7atq71kYYLT0tvw8POXlau3tcWAfZhraIfOzdfV1N2dm69dWXv39vi9u8mqqLrm5eqSj6Z4dZLe1t5YVHdpZYWysMFua4qcnLXJx9N9epaZlqyGhJ26uMfx8fSTkadfW31ZVXjo6O21tb2hn7O/vctwbYvm3ube3t6Cf5qkpAY9AAAACXBIWXMAAAsSAAALEgHS3X78AAAAH3RFWHRTb2Z0d2FyZQBNYWNyb21lZGlhIEZpcmV3b3JrcyA4tWjSeAAAABZ0RVh0Q3JlYXRpb24gVGltZQAwNy8xOC8yM4iR64kAAAJESURBVGiB7Zhtc4IwDMehwkAURUUUnw6fpt7c3b7/p1vTQoWiHq315rb8X0wWQ36FpLWpZaFQKBQKhUL9Gc3tZTYhZJItt60nIeyMlOTYz2B8EEln84yTzCBkb5oxy+NmoeeFWSd/ZWYZCQsaiTxsObRrktFmIf2yacxMbYMQGwIGVdvO9KM4NF5HGvVhT42ZQQgMeikbz2A1x2ApSWVrajYpawi3kK0LsPYeCuxRFXG7EG4ue8zLmV+AvypjVE7DjQjlcSzB/6BKgdqJmrtH1D1WZbCqJeOm3h5RG1P5NuKvmvj22YiIck4sa1Jfdu9roM7g00BFtRpvIluNobmMzcPmCGekx6Bqbz32wx7cFHyb+bbWq7qIVVlt3SrEEqdRVf8GklI9GyJFfX2INN3vQ675IcQ4hP20cjVIvJAao0T75SWMkJeHTG9F7ZqA5DuqS48lQdjulOwe2tt7MZ/J2S1I3trHDzzMplguYrGVrkIOceGh3deVNl6b65DNxUPzgOLIzwfe4Y9oSquQQDiQ01ELMmQ3t/g5wfAaZAr/zHg3JDzU5MKttF3jI03rkAV/Ustawaerw+jBnQlcBfkjSRDWjPGmhB1YfGlA2Dzrw9UbT+26CsmTzhqYvu778iGb/JJnh3ifF0ifN0nFWgA1EmpAoAss+honr9NgyCHifC0fhTUgOt0cTSvdKorNevVETUzBwVVnbb25pKa9XtXe0bHWEYWPD72uVQUTNuqLdTDJOHLj2I12ybMQKBQKhUKhUD+gb0m5I9wiSEcWAAAAAElFTkSuQmCC" alt="">
-    <div class="trace-small-msg">
-        耗时 : <?php echo $cost[0]; ?> 毫秒<br />
-        内存 : <?php echo $cost[1]; ?> k
-    </div>
-</div>
-<script type="text/javascript">
-    var graceTraceStatus = false;
+use startmvc\core\App;  // 添加命名空间引用
+use startmvc\core\db\DbCore;  // 使用DbCore
 
-    function showTrace() {
-        var graceTrace = document.getElementById('trace');
-        graceTraceStatus = !graceTraceStatus;
-        if (graceTraceStatus) {
-            graceTrace.style.display = 'block';
+if(config('trace')): ?>
+<div id="think_page_trace" style="display:none;position:fixed;bottom:0;right:0;font-size:14px;width:100%;z-index:999999;color:#333;text-align:left;background:#f8f9fa;border-top:1px solid #e9ecef;box-shadow:0 -2px 4px rgba(0,0,0,.05);">
+    <div style="padding:12px;">  <!-- 减小整体内边距 -->
+        <div style="margin-bottom:12px;">  <!-- 减小板块间距 -->
+            <h4 style="margin:0 0 8px 0;color:#1a73e8;font-size:16px;border-bottom:1px solid #e9ecef;padding-bottom:6px;">基础信息</h4>  <!-- 减小标题下边距 -->
+            <div style="display:flex;flex-wrap:wrap;gap:12px;">  <!-- 减小卡片间距 -->
+                <div style="background:#fff;padding:8px 15px;border-radius:4px;border:1px solid #e9ecef;">
+                    <span style="color:#666;">请求方法：</span>
+                    <span style="color:#1a73e8;font-weight:bold;"><?php echo $_SERVER['REQUEST_METHOD']; ?></span>
+                </div>
+                <div style="background:#fff;padding:8px 15px;border-radius:4px;border:1px solid #e9ecef;">
+                    <span style="color:#666;">请求URI：</span>
+                    <span style="color:#1a73e8;font-weight:bold;"><?php echo $_SERVER['REQUEST_URI']; ?></span>
+                </div>
+                <div style="background:#fff;padding:8px 15px;border-radius:4px;border:1px solid #e9ecef;">
+                    <span style="color:#666;">运行时间：</span>
+                    <span style="color:#28a745;font-weight:bold;"><?php echo isset(App::$trace['runtime']) ? App::$trace['runtime'] : '未记录'; ?></span>
+                </div>
+                <div style="background:#fff;padding:8px 15px;border-radius:4px;border:1px solid #e9ecef;">
+                    <span style="color:#666;">内存使用：</span>
+                    <span style="color:#28a745;font-weight:bold;"><?php echo isset(App::$trace['memory']) ? App::$trace['memory'] : '未记录'; ?></span>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-bottom:12px;">
+            <h4 style="margin:0 0 8px 0;color:#1a73e8;font-size:16px;border-bottom:1px solid #e9ecef;padding-bottom:6px;">SQL操作记录</h4>
+            <div style="background:#fff;border-radius:4px;border:1px solid #e9ecef;max-height:250px;overflow-y:auto;">
+                <?php 
+                $sqlLogs = DbCore::getSqlLogs();
+                if (!empty($sqlLogs)): 
+                    $totalTime = 0;
+                    foreach($sqlLogs as $index => $sql): 
+                        // 提取执行时间数值部分（去掉ms后缀）
+                        $timeValue = floatval(str_replace('ms', '', $sql['time']));
+                        $totalTime += $timeValue;
+                        // 设置时间显示的颜色，超过100ms为红色，超过50ms为黄色，低于50ms为绿色
+                        $timeColor = $timeValue > 100 ? '#dc3545' : ($timeValue > 50 ? '#ffc107' : '#28a745');
+                    ?>
+                    <div style="padding:6px 12px;<?php echo $index % 2 ? 'background:#f8f9fa;' : ''; ?> font-size:13px;line-height:1.5;border-bottom:1px solid #f0f0f0;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:15px;">
+                            <span style="color:#333;font-family:monospace;flex:1;word-break:break-all;white-space:pre-wrap;"><?php echo htmlspecialchars($sql['sql']); ?></span>
+                            <span style="color:<?php echo $timeColor; ?>;white-space:nowrap;flex-shrink:0;font-weight:bold;"><?php echo $sql['time']; ?></span>
+                        </div>
+                        <?php if (!empty($sql['params'])): ?>
+                        <div style="color:#666;font-size:12px;margin-top:4px;padding-left:20px;word-break:break-all;">
+                            参数：<?php echo htmlspecialchars(json_encode($sql['params'], JSON_UNESCAPED_UNICODE)); ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                    <div style="padding:8px 12px;background:#f8f9fa;font-size:13px;border-top:1px solid #e9ecef;font-weight:bold;">
+                        <span>总计：<?php echo count($sqlLogs); ?> 条SQL语句</span>
+                        <span style="float:right;color:#1a73e8;">总耗时：<?php echo number_format($totalTime, 2); ?> ms</span>
+                    </div>
+                <?php else: ?>
+                    <div style="padding:6px 12px;color:#666;font-style:italic;">暂无SQL操作记录</div>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <div>
+            <h4 style="margin:0 0 8px 0;color:#1a73e8;font-size:16px;border-bottom:1px solid #e9ecef;padding-bottom:6px;">加载的文件</h4>
+            <div style="background:#fff;border-radius:4px;border:1px solid #e9ecef;max-height:150px;overflow-y:auto;">  <!-- 减小最大高度 -->
+                <?php 
+                $files = get_included_files();
+                foreach($files as $index => $file): ?>
+                <div style="padding:4px 12px;<?php echo $index % 2 ? 'background:#f8f9fa;' : ''; ?> font-size:13px;line-height:1.4;">  <!-- 减小文件列表行高和字体 -->
+                    <span style="color:#666;display:inline-block;width:25px;"><?php echo ($index + 1) . '.'; ?></span>
+                    <span style="color:#333;word-break:break-all;"><?php echo $file; ?></span>
+                </div>
+                <?php endforeach; ?>
+                <div style="padding:8px 12px;background:#f8f9fa;font-size:13px;border-top:1px solid #e9ecef;font-weight:bold;">
+                    总计：<?php echo count($files); ?> 个文件
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加一个触发按钮 -->
+<div id="think_page_trace_btn" style="position:fixed;bottom:0;right:0;z-index:999999;">
+    <div style="background:#1a73e8;color:#FFF;padding:6px 12px;cursor:pointer;font-size:14px;border-top-left-radius:4px;box-shadow:0 -2px 4px rgba(0,0,0,.1);">
+        <span style="margin-right:5px;">⚡</span>
+        <?php echo isset(App::$trace['runtime']) ? App::$trace['runtime'] : '0.00ms'; ?>
+    </div>
+</div>
+
+<!-- 添加交互脚本 -->
+<script type="text/javascript">
+(function(){
+    var btn = document.getElementById('think_page_trace_btn');
+    var trace = document.getElementById('think_page_trace');
+    var isShow = false;
+    
+    // 添加过渡效果
+    trace.style.transition = 'all 0.3s ease';
+    
+    btn.onclick = function(){
+        if(isShow){
+            trace.style.transform = 'translateY(100%)';
+            setTimeout(function() {
+                trace.style.display = 'none';
+            }, 300);
+            isShow = false;
         } else {
-            graceTrace.style.display = 'none';
+            trace.style.display = 'block';
+            setTimeout(function() {
+                trace.style.transform = 'translateY(0)';
+            }, 10);
+            isShow = true;
         }
-    }
+    };
+})();
 </script>
+<?php endif; ?>

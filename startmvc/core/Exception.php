@@ -19,61 +19,119 @@ class Exception
 
 	}
 	public static function init() {
-		// 注册错误处理方法
-		set_error_handler([__CLASS__, 'error'], E_ALL | E_STRICT);
-
-		// 注册异常处理方法
-		set_exception_handler([__CLASS__, 'exception']);
+		// 设置错误处理函数
+		set_error_handler([__CLASS__, 'handleError']);
+		
+		// 设置异常处理函数
+		set_exception_handler([__CLASS__, 'handleException']);
+		
+		// 设置致命错误处理
+		register_shutdown_function([__CLASS__, 'handleShutdown']);
 	}
 
 	/**
-	 * 错误处理方法
+	 * 处理错误
+	 * @param int $level 错误级别
+	 * @param string $message 错误消息
+	 * @param string $file 文件
+	 * @param int $line 行号
+	 * @throws \ErrorException
 	 */
-	public static function error($errno, $errstr, $errfile, $errline)
+	public static function handleError($level, $message, $file, $line)
 	{
-		// 格式化错误信息
-		//$msg = sprintf(
-		//	"错误:\nType: %d\n信息: %s\n文件: %s\nLine: %s",
-		//	$errno,
-		//	$errstr,
-		//	$errfile,
-		//	$errline
-		//);
-		$output=['类型:'.$errno,'错误:'.$errstr,'文件:'.$errfile,'行号:'.$errline];
-		// 输出或记录格式化后的错误信息
-		//$this->logError($msg);
-
-		// 传递错误信息到错误页面
-		self::errorPage($output);
-
-		// 继续执行默认的错误处理
-		return false;
+		if (error_reporting() & $level) {
+			throw new \ErrorException($message, 0, $level, $file, $line);
+		}
 	}
 
 	/**
-	 * 异常处理方法
+	 * 记录异常到日志
+	 * @param \Throwable $exception
+	 * @return void
 	 */
-	public static function exception(\Throwable $exception)
+	protected static function logException(\Throwable $exception)
 	{
-		// 格式化异常信息
-		$output=['异常:'.$exception->getMessage(),'文件:'.$exception->getFile(),'行号:'.$exception->getLine(),'跟踪:'.str_replace("#", "<br>#", $exception->getTraceAsString())];
-		//$msg = sprintf(
-		//	"异常:\n
-		//	信息: %s\n文件: %s\n行: %s\n跟踪:\n%s",
-		//	$exception->getMessage(),
-		//	$exception->getFile(),
-		//	$exception->getLine(),
-		//	$exception->getTraceAsString()
-		//);
+		$logPath = ROOT_PATH . 'runtime/logs';
+		
+		// 确保日志目录存在
+		if (!is_dir($logPath)) {
+			@mkdir($logPath, 0777, true);
+		}
+		
+		// 如果目录创建失败，尝试使用系统临时目录
+		if (!is_dir($logPath)) {
+			$logPath = sys_get_temp_dir();
+		}
+		
+		$message = sprintf(
+			"[%s] %s in %s:%d\nStack trace:\n%s\n",
+			date('Y-m-d H:i:s'),
+			$exception->getMessage(),
+			$exception->getFile(),
+			$exception->getLine(),
+			$exception->getTraceAsString()
+		);
+		
+		$logFile = $logPath . DIRECTORY_SEPARATOR . date('Y-m-d') . '_error.log';
+		
+		// 使用错误抑制符，避免因写入失败导致的额外异常
+		@error_log($message, 3, $logFile);
+	}
 
-		// 输出或记录格式化后的异常信息
-		//$this->logError($msg);
+	/**
+	 * 处理异常
+	 * @param \Throwable $exception
+	 */
+	public static function handleException(\Throwable $exception)
+	{
+		try {
+			self::logException($exception);
+		} catch (\Exception $e) {
+			// 日志记录失败时的处理
+		}
 
-		// 传递异常信息到错误页面
-		self::errorPage($output);
+		// 设置HTTP状态码
+		http_response_code(500);
 
-		// 终止脚本执行
-		exit(1);
+		// 获取调试模式设置
+		$debug = config('debug', true); // 默认为true，确保在配置不存在时也能看到错误
+
+		// AJAX请求处理
+		if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+			strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+			header('Content-Type: application/json');
+			echo json_encode([
+				'error' => $exception->getMessage(),
+				'trace' => $exception->getTraceAsString()
+			]);
+			exit;
+		}
+
+		// 传递异常对象到错误模板
+		$e = $exception; // 为错误模板提供异常对象
+		
+		// 包含错误模板
+		$errorTemplate = CORE_PATH . 'tpl/error.php';
+		if (file_exists($errorTemplate)) {
+			include $errorTemplate;
+		} else {
+			echo '<h1>系统错误</h1>';
+			echo '<p>' . htmlspecialchars($exception->getMessage()) . '</p>';
+			echo '<pre>' . htmlspecialchars($exception->getTraceAsString()) . '</pre>';
+		}
+		exit;
+	}
+
+	/**
+	 * 处理程序结束时的错误
+	 */
+	public static function handleShutdown()
+	{
+		$error = error_get_last();
+		
+		if ($error !== null && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
+			self::handleError($error['type'], $error['message'], $error['file'], $error['line']);
+		}
 	}
 
 	/**

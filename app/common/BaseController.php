@@ -16,5 +16,11 @@ class BaseController extends Controller{
 	function __construct(){
 		parent::__construct();//调用父级构造方法
 		
-		}
+		$this->_initialize();
+	}
+	
+	protected function _initialize()
+	{
+		// 子类可以重写此方法
+	}
 }

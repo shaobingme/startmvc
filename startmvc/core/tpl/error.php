@@ -1,19 +1,55 @@
-<style>
-    .exception{margin:150px auto 0 auto;padding:2rem 2rem 1rem 2rem;width:1200px;background-color:#fff;border-top:5px solid #669933;word-break:break-word;box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15)}
-    .exception h1{padding:0;margin:0 0 4px 0;font-size:1.5rem;font-weight:normal;color:#666}
-    .e-text{margin-bottom:1.5rem;font-size:1rem;line-height:1.5;font-weight:500;color:#332F51}
-    .e-list{padding:1.5rem 0 0 0;border-top:1px solid #ddd;line-height:2}
-    .e-list dt{float:left;margin-right:1rem;color:#666}
-</style>
-
-<div class="exception">
-    <h1>DEBUG提示</h1>
-    <dl class="e-list">
-        <dd><?= $output[0]?></dd>
-        <dd><?= $output['1']?></dd>
-        <dd><?= $output['2']?></dd>
-        <dd><?= $output['3']?></dd>
-
-    </dl>
-	<div><a href="https://www.startmvc.com" title="StartMVC框架" target="_blank" rel="noopenner noreferrer">StartMVC框架</a></div>
-</div>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>系统错误</title>
+    <meta charset="utf-8">
+    <style>
+        body { 
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #f5f5f5;
+        }
+        .error-container {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 { 
+            color: #e74c3c;
+            margin-top: 0;
+        }
+        .error-message {
+            color: #666;
+            line-height: 1.6;
+        }
+        .error-trace {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>系统错误</h1>
+        <div class="error-message">
+            <?php if (config('debug', true)): ?>
+                <p><strong>错误信息：</strong><?php echo htmlspecialchars($e->getMessage()); ?></p>
+                <p><strong>文件位置：</strong><?php echo htmlspecialchars($e->getFile()); ?> 行号：<?php echo $e->getLine(); ?></p>
+                <div class="error-trace">
+                    <strong>堆栈跟踪：</strong><br>
+                    <?php echo nl2br(htmlspecialchars($e->getTraceAsString())); ?>
+                </div>
+            <?php else: ?>
+                <p>抱歉，系统遇到了一些问题。请稍后再试。</p>
+            <?php endif; ?>
+        </div>
+    </div>
+</body>
+</html>

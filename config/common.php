@@ -10,7 +10,7 @@
 return [
     'debug' => true,	//Debug模式，开发过程中开启，生产环境中请关闭
     'trace' => true,	//是否开启调试追踪，生产环境中请关闭
-    'timezone' => 'PRC',	//系统时区
+    'timezone' => 'Asia/Shanghai',	//系统时区
     'url_suffix' => '.html',	//URL后缀
     'default_module' => 'home',	//默认模块
     'default_controller' => 'Index',	//默认控制器
@@ -19,6 +19,6 @@ return [
     'session_prefix' => '',	//Session前缀
     'cookie_prefix' => '',	//Cookie前缀
     'locale'  => 'zh_cn',	//指定默认语言，小写
-    'db_auto_connect'  => false,	//是否开启数据库自动连接
+    'db_auto_connect'  => true,	//是否开启数据库自动连接
     'theme'  => '',	//指定模板子目录，方便多风格使用，为空时模板文件在view下
 ];

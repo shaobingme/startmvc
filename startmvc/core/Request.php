@@ -11,6 +11,57 @@
 namespace startmvc\core;
 class Request
 {
+    /**
+     * 获取所有输入
+     * @return array
+     */
+    public function all()
+    {
+        return array_merge($_GET, $_POST);
+    }
+    
+    /**
+     * 获取输入值
+     * @param string $key 键名
+     * @param mixed $default 默认值
+     * @return mixed
+     */
+    public function input($key = null, $default = null)
+    {
+        $data = $this->all();
+        return $key ? ($data[$key] ?? $default) : $data;
+    }
+    
+    /**
+     * 获取请求头
+     * @param string $key 键名
+     * @param mixed $default 默认值
+     * @return mixed
+     */
+    public function header($key = null, $default = null)
+    {
+        $headers = getallheaders();
+        if ($key) {
+            $key = strtolower($key);
+            foreach ($headers as $headerKey => $value) {
+                if (strtolower($headerKey) === $key) {
+                    return $value;
+                }
+            }
+            return $default;
+        }
+        return $headers;
+    }
+    
+    /**
+     * 判断是否为AJAX请求
+     * @return bool
+     */
+    public function isAjax()
+    {
+        return $this->header('X-Requested-With') === 'XMLHttpRequest';
+    }
+
     public static function get($key, $options = [])
     {
         $val = isset($_GET[$key]) ? $_GET[$key] : null;
@@ -36,10 +87,6 @@ class Request
         }
         return $headers;
     }
-    public static function header($key)
-    {
-        return self::headers()[ucfirst(strtolower($key))];
-    }
     public static function method()
     {
         return $_SERVER['REQUEST_METHOD'];
@@ -51,9 +98,5 @@ class Request
     public static function isPost()
     {
         return strtoupper($_SERVER['REQUEST_METHOD']) == 'POST';
-    }
-    public static function isAjax()
-    {
-        return (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest');
     }
 }

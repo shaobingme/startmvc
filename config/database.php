@@ -1,7 +1,7 @@
 <?php
 // 数据库连接配置,支持mysql,sqlite,pgsql,oracle
 return [
-	'default'	=>	'mysql',//指定数据库类型
+	'driver'	=>	'mysql',//指定数据库类型
 	'connections'	=>	[
 		'mysql'	=>	[
 			'driver'	=> 'mysql',//数据库类型

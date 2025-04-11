@@ -70,6 +70,11 @@ class view{
 	];
 
 	function __construct(){
+		// 使用常量或默认值
+		$module = defined('MODULE') ? MODULE : 'home';
+		$controller = defined('CONTROLLER') ? CONTROLLER : 'Index';
+		$action = defined('ACTION') ? ACTION : 'index';
+		
 		$theme=config('theme')?config('theme').DS:'';
 		$this->tpl_template_dir = APP_PATH .MODULE . DS. 'view'.DS.$theme;
 		$this->tpl_compile_dir = TEMP_PATH.MODULE.DS;
@@ -93,7 +98,8 @@ class view{
 	}
 
 	//视图渲染 支持多级目录
-	public function display($name='',$data=[]){
+	public function display($name='', $data=[])
+	{
 		if ($name == '') {
 			$name = strtolower(CONTROLLER . DS . ACTION);
 		}
@@ -110,14 +116,14 @@ class view{
 		}
 		// 将变量导入到当前
 		extract($this->vars);
-		// 开启输出缓冲
+		// 获取渲染后的内容
 		ob_start();
 		$this->_compile($tplFile,$cacheFile);
-		// 包含模板文件
 		include $cacheFile;
-		// 获取缓冲区内容并清空缓冲区
-		$output = ob_get_clean();
-		return $output;
+		$content = ob_get_clean();
+		
+		// 直接输出内容，不要处理trace
+		echo $content;
 	}
 
 	/**

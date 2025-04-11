@@ -10,28 +10,18 @@
  
 namespace startmvc\core;
 use startmvc\core\Request;
-//use startmvc\core\db\Sql;
-use startmvc\core\Db;
 use startmvc\core\Loader;
 use startmvc\core\View;
 
 abstract class Controller
 {
-
 	public $conf;
-	protected $db;
 	public $assign;
 	protected $view;
+	
 	public function __construct()
 	{
 		$this->conf = include CONFIG_PATH . 'common.php';
-		if($this->conf['db_auto_connect']){
-			$dbConf = include CONFIG_PATH . '/database.php';
-			if ($dbConf['default'] != '') {
-				//$this->db= new Sql($dbConf['connections'][$dbConf['default']]);
-				$this->db= new Db($dbConf['connections'][$dbConf['default']]);
-			}
-		}
 		$this->view = new View();
 	}
 	/**
@@ -39,11 +29,6 @@ abstract class Controller
 	 */
 	protected function model($model, $module = MODULE)
 	{
-		//if($model){
-		   // $model = APP_NAMESPACE.'\\' . ($module != '' ? $module . '\\' : '') . 'Model\\' . $model . 'Model';
-		//}else{
-		   // $model = CORE_PATH.'\\Model';
-		//}
 		$model = APP_NAMESPACE.'\\' . $module . '\\'. 'model\\' . $model . 'Model';
 		return Loader::getInstance($model);
 	}
@@ -139,9 +124,5 @@ abstract class Controller
 	{
 		header("HTTP/1.1 404 Not Found");  
 		header("Status: 404 Not Found");
-	}
-	public function __call($fun, $arg)
-	{
-		$this->notFound();
 	}
 }

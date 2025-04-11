@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
 namespace startmvc\core;
-use startmvc\core\Db;
+use startmvc\core\db\DbCore;
 
 abstract class Model
 {
@@ -19,8 +19,8 @@ abstract class Model
 	public function __construct ()
 	{
 		$this->dbConf = include CONFIG_PATH . '/database.php';
-		if ($this->dbConf['default'] != '') {
-			$this->db= new Db($this->dbConf['connections'][$this->dbConf['default']]);
+		if ($this->dbConf['driver'] != '') {
+			$this->db= new Db($this->dbConf['connections'][$this->dbConf['driver']]);
 		}
 
 	}

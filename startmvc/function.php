@@ -78,18 +78,36 @@ function dump($var, $label = null, $echo = true)
 
 /**
  * 配置文件函数
- * @param string $name
- * @param string $value
- * @param string $file
+ * @param string $key
+ * @param mixed $default
  * @return mixed
  */
-
-function config($name = '', $value = '',$file='common') {
-	$config=Config::load($file);
-	if ('' === $value) {
-		return $config[$name];
+function config($key = null, $default = null)
+{
+	static $config = null;
+	
+	// 如果配置未加载，先加载配置
+	if ($config === null) {
+		// 加载公共配置文件
+		$commonConfig = require ROOT_PATH . '/config/common.php';
+		
+		// 如果有环境配置文件，也加载它
+		$envConfig = [];
+		if (file_exists(ROOT_PATH . '/config/' . ENV . '.php')) {
+			$envConfig = require ROOT_PATH . '/config/' . ENV . '.php';
+		}
+		
+		// 合并配置
+		$config = array_merge($commonConfig, $envConfig);
 	}
-	return $config[$name]=$value;
+	
+	// 如果没有指定 key，返回所有配置
+	if ($key === null) {
+		return $config;
+	}
+	
+	// 返回指定配置项，如果不存在返回默认值
+	return isset($config[$key]) ? $config[$key] : $default;
 }
 
 /**

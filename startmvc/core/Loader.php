@@ -18,26 +18,20 @@ class Loader
 		return (new \ReflectionClass($className))->newInstanceArgs($paramArr);
 	}
 
-	public static function make($className, $methodName, $params = [])
+	public static function make($controller, $action, $argv)
 	{
-		$parent = $class = new \ReflectionClass($className);
-		$isController = false;
-		while ($parent = $parent->getParentClass()) {
-			if ($parent->getName() == 'startmvc\core\Controller') {
-				$isController = true;
-				break;
+		try {
+			$class = new \ReflectionClass($controller);
+			$instance = $class->newInstanceArgs();
+			
+			if (!method_exists($instance, $action)) {
+				throw new \Exception("方法{$action}不存在");
 			}
+			
+			return call_user_func_array([$instance, $action], $argv);
+		} catch (\ReflectionException $e) {
+			throw new \Exception("控制器实例化失败：" . $e->getMessage());
 		}
-		if ($isController) {
-			self::filter($class->getDocComment());
-		}
-		$instance = self::getInstance($className);
-		$method = $class->getMethod($methodName);
-		if ($isController) {
-			self::filter($method->getDocComment());
-		}
-		$paramArr = self::getMethodParams($className, $methodName);
-		return $instance->{$methodName}(...array_merge($paramArr, $params));
 	}
 
 	protected static function getMethodParams($className, $methodsName = '__construct')

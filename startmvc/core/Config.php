@@ -12,29 +12,82 @@ namespace startmvc\core;
 class Config
 {
 	/**
-	 * 用来存储已经加载的配置
-	 *
+	 * 配置缓存
 	 * @var array
 	 */
-	private static $conf = [];  
+	protected static $config = [];
 
 	/**
-	 * 加载系统配置文件(直接加载整个配置文件),如果之前已经加载过,那么就直接返回
-	 *
-	 * @param string $file 文件名
-	 *
-	 * @return string|array
+	 * 加载配置文件
+	 * @param string $file 配置文件名(不含扩展名)
+	 * @return array
 	 */
-	static public function load($file="common")
+	public static function load($file = 'app')
 	{
-		if (isset(self::$conf[$file])) {
-			return self::$conf[$file];
+		if (!isset(self::$config[$file])) {
+			$path = CONFIG_PATH . $file . '.php';
+			if (file_exists($path)) {
+				self::$config[$file] = require $path;
+			} else {
+				self::$config[$file] = [];
+			}
 		}
-		$conf = CONFIG_PATH . DS . $file . '.php';
-		if (file_exists($conf)) {
-			self::$conf[$file] = @include $conf;
-			return self::$conf[$file];
+		
+		return self::$config[$file];
+	}
+
+	/**
+	 * 获取配置项
+	 * @param string $key 配置键 (格式: file.key.subkey)
+	 * @param mixed $default 默认值
+	 * @return mixed
+	 */
+	public static function get($key, $default = null)
+	{
+		$keys = explode('.', $key);
+		$file = array_shift($keys);
+		
+		$config = self::load($file);
+		
+		foreach ($keys as $segment) {
+			if (!is_array($config) || !array_key_exists($segment, $config)) {
+				return $default;
+			}
+			$config = $config[$segment];
 		}
-		throw new \Exception('Config "' . $conf . '" not found.');
+		
+		return $config;
+	}
+
+	/**
+	 * 设置配置项
+	 * @param string $key 配置键
+	 * @param mixed $value 配置值
+	 * @return void
+	 */
+	public static function set($key, $value)
+	{
+		$keys = explode('.', $key);
+		$file = array_shift($keys);
+		
+		if (!isset(self::$config[$file])) {
+			self::load($file);
+		}
+		
+		$config = &self::$config[$file];
+		
+		foreach ($keys as $segment) {
+			if (!is_array($config)) {
+				$config = [];
+			}
+			
+			if (!array_key_exists($segment, $config)) {
+				$config[$segment] = [];
+			}
+			
+			$config = &$config[$segment];
+		}
+		
+		$config = $value;
 	}
 }
