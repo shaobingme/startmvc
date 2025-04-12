@@ -4,6 +4,7 @@ namespace app\home\controller;
 use app\common\BaseController;
 use startmvc\core\Config;
 use startmvc\core\Db;
+
 class IndexController extends BaseController{
 	
 	public function indexAction()
@@ -12,8 +13,6 @@ class IndexController extends BaseController{
 		$data['content'] = 'Hello StartMVC!';
 		
 		$this->assign($data);
-		//$this->display('',$data);
 		$this->display();
 	}
-
 }
