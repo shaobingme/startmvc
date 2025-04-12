@@ -1090,18 +1090,19 @@ class DbCore implements DbInterface
      * 插入数据
      * 
      * @param array $data 要插入的数据
-     * @param bool  $returnSql 是否仅返回SQL，而不执行
+     * @param bool|string $returnSql 是否仅返回SQL或返回类型
+     * @param string $type 插入类型：INSERT, INSERT IGNORE, REPLACE, DUPLICATE
      *
      * @return bool|string|int|null|$this
      */
-    public function insert(array $data, $returnSql = false)
+    public function insert(array $data, $returnSql = false, $type = 'INSERT')
     {
-        $query = $this->buildInsertQuery($data);
+        $query = $this->buildInsertQuery($data, $type);
         
         // 存储插入数据和查询，用于getSql方法
         $this->_insertData = $data;
         $this->_lastQuery = $query;
-        $this->_queryType = 'insert';
+        $this->_queryType = strtolower(explode(' ', $type)[0]); // insert, replace, etc.
 
         if ($returnSql === true || $this->_returnSql) {
             $this->_returnSql = false;
@@ -1121,11 +1122,30 @@ class DbCore implements DbInterface
      * 构建INSERT查询SQL
      * 
      * @param array $data 要插入的数据
+     * @param string $type 插入类型：INSERT, INSERT IGNORE, REPLACE, DUPLICATE
      * @return string 构建好的SQL语句
      */
-    protected function buildInsertQuery(array $data)
+    protected function buildInsertQuery(array $data, $type = 'INSERT')
     {
-        $query = 'INSERT INTO ' . $this->from;
+        // 标准化插入类型，默认为标准INSERT
+        $type = strtoupper($type);
+        
+        // 根据类型设置SQL前缀
+        switch ($type) {
+            case 'INSERT IGNORE':
+            case 'IGNORE':
+                $query = 'INSERT IGNORE INTO ' . $this->from;
+                break;
+            case 'INSERT OR IGNORE':
+                $query = 'INSERT OR IGNORE INTO ' . $this->from;
+                break;
+            case 'REPLACE':
+                $query = 'REPLACE INTO ' . $this->from;
+                break;
+            default:
+                $query = 'INSERT INTO ' . $this->from;
+                break;
+        }
 
         $values = array_values($data);
         if (isset($values[0]) && is_array($values[0])) {
@@ -1136,10 +1156,30 @@ class DbCore implements DbInterface
                 $query .= '(' . $val . '), ';
             }
             $query = trim($query, ', ');
+            
+            // 处理ON DUPLICATE KEY UPDATE
+            if ($type === 'DUPLICATE') {
+                $query .= ' ON DUPLICATE KEY UPDATE ';
+                $updates = [];
+                foreach (array_keys($values[0]) as $column) {
+                    $updates[] = "$column = VALUES($column)";
+                }
+                $query .= implode(', ', $updates);
+            }
         } else {
             $column = implode(', ', array_keys($data));
             $val = implode(', ', array_map([$this, 'escape'], $data));
             $query .= ' (' . $column . ') VALUES (' . $val . ')';
+            
+            // 处理ON DUPLICATE KEY UPDATE
+            if ($type === 'DUPLICATE') {
+                $query .= ' ON DUPLICATE KEY UPDATE ';
+                $updates = [];
+                foreach (array_keys($data) as $column) {
+                    $updates[] = "$column = VALUES($column)";
+                }
+                $query .= implode(', ', $updates);
+            }
         }
 
         return $query;
