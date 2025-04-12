@@ -1,3 +1,4 @@
+<?php
 namespace startmvc\core;
 
 class Logger
