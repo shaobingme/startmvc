@@ -172,6 +172,13 @@ class App
 			// 移除前后的斜杠
 			$uri = trim($uri, '/');
 			
+			// 过滤入口文件名（如index.php）
+			$scriptName = basename($_SERVER['SCRIPT_NAME']);
+			if (strpos($uri, $scriptName) === 0) {
+				$uri = substr($uri, strlen($scriptName));
+				$uri = trim($uri, '/');
+			}
+			
 			// 如果URI为空，使用默认路由
 			if (empty($uri)) {
 				$module = 'home';  // 默认模块
@@ -185,6 +192,15 @@ class App
 				$controller = isset($parts[1]) ? ucfirst($parts[1]) : 'Index';
 				$action = isset($parts[2]) ? $parts[2] : 'index';
 				$params = array_slice($parts, 3);
+			}
+			
+			// 校验模块是否存在
+			if (!is_dir(APP_PATH . $module)) {
+				// 模块不存在，使用默认模块
+				$params = array_merge([$controller, $action], $params);
+				$module = 'home';
+				$controller = 'Index';
+				$action = 'index';
 			}
 			
 			// 使用原有的startApp方法
