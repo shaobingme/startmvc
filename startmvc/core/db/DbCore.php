@@ -1790,6 +1790,89 @@ class DbCore implements DbInterface
         
         return $last['sql'];
     }
+
+    /**
+     * 布尔值取反（0变1，1变0）
+     * 
+     * @param string $column 列名
+     * @return int|bool 影响的行数或失败时返回false
+     */
+    public function invert($column)
+    {
+        $query = "UPDATE {$this->from} SET {$column} = !{$column}";
+        
+        if (!is_null($this->where)) {
+            $query .= ' WHERE ' . $this->where;
+        }
+        
+        // 存储查询，用于getSql方法
+        $this->_lastQuery = $query;
+        $this->_queryType = 'update';
+        
+        if ($this->_returnSql) {
+            $this->_returnSql = false;
+            $this->reset();
+            return $query;
+        }
+        
+        return $this->query($query, false);
+    }
+
+    /**
+     * 列值递增更新
+     * 
+     * @param string $column 列名
+     * @param int $count 递增的数值，默认为1
+     * @return int|bool 影响的行数或失败时返回false
+     */
+    public function inc($column, int $count = 1)
+    {
+        $query = "UPDATE {$this->from} SET {$column} = {$column} + {$count}";
+        
+        if (!is_null($this->where)) {
+            $query .= ' WHERE ' . $this->where;
+        }
+        
+        // 存储查询，用于getSql方法
+        $this->_lastQuery = $query;
+        $this->_queryType = 'update';
+        
+        if ($this->_returnSql) {
+            $this->_returnSql = false;
+            $this->reset();
+            return $query;
+        }
+        
+        return $this->query($query, false);
+    }
+
+    /**
+     * 列值递减更新
+     * 
+     * @param string $column 列名
+     * @param int $count 递减的数值，默认为1
+     * @return int|bool 影响的行数或失败时返回false
+     */
+    public function dec($column, int $count = 1)
+    {
+        $query = "UPDATE {$this->from} SET {$column} = {$column} - {$count}";
+        
+        if (!is_null($this->where)) {
+            $query .= ' WHERE ' . $this->where;
+        }
+        
+        // 存储查询，用于getSql方法
+        $this->_lastQuery = $query;
+        $this->_queryType = 'update';
+        
+        if ($this->_returnSql) {
+            $this->_returnSql = false;
+            $this->reset();
+            return $query;
+        }
+        
+        return $this->query($query, false);
+    }
 }
 
 /**
@@ -1844,4 +1927,25 @@ class DbCore implements DbInterface
  * $result = Db::table('users')->where('id', 1)->get('object');
  * // $result->id = 1
  * // $result->name = 'test'
+ * 
+ * // 特殊更新操作示例：
+ * // 将列值取反 (0变1, 1变0)
+ * Db::table('users')->where('id', 1)->invert('is_active');
+ * // 结果: UPDATE users SET is_active = !is_active WHERE id = 1
+ * 
+ * // 列值递增
+ * Db::table('users')->where('id', 1)->inc('login_count');
+ * // 结果: UPDATE users SET login_count = login_count + 1 WHERE id = 1
+ * 
+ * // 指定递增值的列值递增
+ * Db::table('users')->where('id', 1)->inc('score', 5);
+ * // 结果: UPDATE users SET score = score + 5 WHERE id = 1
+ * 
+ * // 列值递减
+ * Db::table('users')->where('id', 1)->dec('remaining_attempts');
+ * // 结果: UPDATE users SET remaining_attempts = remaining_attempts - 1 WHERE id = 1
+ * 
+ * // 指定递减值的列值递减
+ * Db::table('products')->where('id', 1)->dec('stock', 10);
+ * // 结果: UPDATE products SET stock = stock - 10 WHERE id = 1
  */
