@@ -8,6 +8,7 @@ use PDOException;
 use startmvc\core\Exception;
 use startmvc\core\Config;
 use startmvc\core\Logger;
+use startmvc\core\db\DbCache;
 
 /**
  * Dbcore - 实用的查询构建器和PDO类
@@ -127,6 +128,17 @@ class DbCore implements DbInterface
     {
         $this->config = $config;
         $this->prefix = $config['prefix'] ?? ''; // 设置表前缀
+        
+        // 初始化缓存目录
+        if (!empty($config['cachedir'])) {
+            $this->cacheDir = $config['cachedir'];
+            
+            // 确保缓存目录存在
+            if (!file_exists($this->cacheDir)) {
+                mkdir($this->cacheDir, 0755, true);
+            }
+        }
+        
         $this->connect(); // 在构造函数中初始化连接
     }
     
@@ -1577,13 +1589,40 @@ class DbCore implements DbInterface
     /**
      * 设置缓存
      * 
-     * @param $time 缓存时间
+     * @param int|null $time 缓存时间（秒），null表示使用默认配置
      *
      * @return $this
      */
-    public function cache($time)
+    public function cache($time = null)
     {
-        $this->cache = new Cache($this->cacheDir, $time);
+        // 如果未指定缓存时间，则使用配置中的默认值
+        if ($time === null) {
+            // 优先使用数据库配置中的cacheTime
+            if (!empty($this->config['cachetime'])) {
+                $time = $this->config['cachetime'];
+            } else {
+                // 如果数据库配置中没有设置，使用缓存配置中的defaultTime
+                $cacheConfig = config('cache');
+                $time = $cacheConfig['file']['cacheTime'] ?? 3600; // 默认1小时
+            }
+        }
+        
+        // 优先使用数据库配置中的cachedir
+        if (!empty($this->config['cachedir'])) {
+            $cacheDir = $this->config['cachedir'];
+        } else {
+            // 如果数据库配置中没有设置，则使用缓存配置
+            $cacheConfig = config('cache');
+            $cacheDir = CACHE_PATH . ($cacheConfig['file']['cacheDir'] ?? 'db/');
+        }
+        
+        // 确保缓存目录存在
+        if (!file_exists($cacheDir)) {
+            mkdir($cacheDir, 0755, true);
+        }
+        
+        // 使用DbCache类创建缓存实例
+        $this->cache = new DbCache($cacheDir, $time);
 
         return $this;
     }

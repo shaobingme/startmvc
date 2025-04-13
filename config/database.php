@@ -13,11 +13,17 @@ return [
 			'port' => 3306,  //数据库端口
 			'collation'	=> 'utf8_general_ci',//数据表编码
 			'prefix'	 => 'sm_',//数据表前缀
+			'cachetime' => 3600,//缓存时间(秒)
+			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
+			'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		'sqlite'	=>	[
 			'driver' => 'sqlite',//数据库类型
 			'database' => BASE_PATH.'data/database/test.db',//数据库文件路径
-			'prefix' => 'sm_'//数据表前缀
+			'prefix' => 'sm_',//数据表前缀
+			'cachetime' => 3600,//缓存时间(秒)
+			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
+			'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		'pgsql'	=>	[
 			'driver'	=> 'pgsql',//数据库类型
@@ -28,7 +34,10 @@ return [
 			'charset'	=> 'utf8',//数据库字符集
 			'port' => 3306,  //数据库端口
 			'collation'	=> 'utf8_general_ci',//数据表编码
-			'prefix'	 => 'sm_'//数据表前缀
+			'prefix'	 => 'sm_',//数据表前缀
+			'cachetime' => 3600,//缓存时间(秒)
+			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
+			'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		'oracle'	=>	[
 			'driver'	=> 'oracle',//数据库类型
@@ -37,6 +46,12 @@ return [
 			'username'	=> 'root',//数据库用户名
 			'password'	=> '',//数据库密码
 			'charset'	=> 'utf8',//数据库字符集
+			'port' => 3306,  //数据库端口
+			'collation'	=> 'utf8_general_ci',//数据表编码
+			'prefix'	 => 'sm_',//数据表前缀
+			'cachetime' => 3600,//缓存时间(秒)
+			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
+			'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		
 	],
