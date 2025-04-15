@@ -82,6 +82,12 @@ class DbCore implements DbInterface
      */
     protected $transactionCount = 0;
 
+    /**
+     * 子节点查询配置
+     * @var array
+     */
+    protected $joinNodes = [];
+
     // 存储临时更新数据，用于getSql()方法
     protected $_updateData = [];
     
@@ -169,7 +175,7 @@ class DbCore implements DbInterface
         if ($this->connected) {
             return $this->pdo;
         }
-        
+
         try {
             $dsn = "{$this->config['driver']}:host={$this->config['host']};port={$this->config['port']};dbname={$this->config['database']};charset={$this->config['charset']}";
             $this->pdo = new PDO($dsn, $this->config['username'], $this->config['password'], [
@@ -891,31 +897,10 @@ class DbCore implements DbInterface
      *
      * @return $this
      */
-    public function pagination($perPage, $page)
+    public function page($perPage, $page)
     {
         $this->limit = $perPage;
         $this->offset = (($page > 0 ? $page : 1) - 1) * $perPage;
-
-        return $this;
-    }
-
-    /**
-     * 设置查询结果的排序
-     * 
-     * @param string      $orderBy 排序字段
-     * @param string|null $orderDir 排序方向
-     *
-     * @return $this
-     */
-    public function orderBy($orderBy, $orderDir = null)
-    {
-        if (!is_null($orderDir)) {
-            $this->orderBy = $orderBy . ' ' . strtoupper($orderDir);
-        } else {
-            $this->orderBy = stristr($orderBy, ' ') || strtolower($orderBy) === 'rand()'
-                ? $orderBy
-                : $orderBy . ' ASC';
-        }
 
         return $this;
     }
@@ -927,10 +912,13 @@ class DbCore implements DbInterface
      *
      * @return $this
      */
-    public function groupBy($groupBy)
+    public function group($groupBy)
     {
-        $this->groupBy = is_array($groupBy) ? implode(', ', $groupBy) : $groupBy;
-
+        if (is_array($groupBy)) {
+            $this->groupBy = implode(', ', $groupBy);
+        } else {
+            $this->groupBy = $groupBy;
+        }
         return $this;
     }
 
@@ -1016,7 +1004,7 @@ class DbCore implements DbInterface
     {
         $this->limit(1);
         $query = $this->buildSelectQuery();
-        
+
         // 存储查询，用于getSql方法
         $this->_lastQuery = $query;
         $this->_queryType = 'select';
@@ -1027,8 +1015,10 @@ class DbCore implements DbInterface
             return $query;
         }
         
+        $result = $this->query($query, false, $returnSql, $argument);
+        
         $this->reset();
-        return $this->query($query, false, $returnSql, $argument);
+        return $result;
     }
 
     /**
@@ -1053,9 +1043,10 @@ class DbCore implements DbInterface
             return $query;
         }
         
+        $result = $this->query($query, true, $returnSql, $argument);
+        
         $this->reset();
-        // 执行查询...返回所有结果
-        return $this->query($query, true, $returnSql, $argument);
+        return $result;
     }
 
     /**
@@ -1155,7 +1146,7 @@ class DbCore implements DbInterface
                 $query = 'REPLACE INTO ' . $this->from;
                 break;
             default:
-                $query = 'INSERT INTO ' . $this->from;
+        $query = 'INSERT INTO ' . $this->from;
                 break;
         }
 
@@ -1194,8 +1185,8 @@ class DbCore implements DbInterface
             }
         }
 
-        return $query;
-    }
+            return $query;
+        }
 
     /**
      * 更新数据
@@ -1368,6 +1359,26 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 清空表数据
+     *
+     * @return mixed
+     */
+    public function truncate()
+    {
+        return $this->query('TRUNCATE TABLE ' . $this->from, false);
+    }
+
+    /**
+     * 删除表
+     *
+     * @return mixed
+     */
+    public function drop()
+    {
+        return $this->query('DROP TABLE ' . $this->from, false);
+    }
+
+    /**
      * 开始事务
      *
      * @return bool
@@ -1520,7 +1531,7 @@ class DbCore implements DbInterface
                 break;
             }
         }
-        
+
         $type = $this->getFetchType($type);
         $cache = false;
         if (!is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
@@ -1539,6 +1550,14 @@ class DbCore implements DbInterface
                         $sql->setFetchMode($type);
                     }
                     $this->result = $all ? $sql->fetchAll() : $sql->fetch();
+                    
+                    // 保存当前的joinNodes，因为reset会清空它
+                    $currentJoinNodes = $this->joinNodes;
+                    
+                    // 处理子节点查询结果
+                    if (!empty($currentJoinNodes) && is_array($this->result)) {
+                        $this->result = $this->nodeParser($this->result);
+                    }
                 }
 
                 if (!is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
@@ -1562,6 +1581,12 @@ class DbCore implements DbInterface
             $this->cache = null;
             $this->result = $cache;
             $this->numRows = is_array($this->result) ? count($this->result) : ($this->result === '' ? 0 : 1);
+            
+            // 对缓存结果进行子节点处理
+            $currentJoinNodes = $this->joinNodes;
+            if (!empty($currentJoinNodes) && is_array($this->result)) {
+                $this->result = $this->nodeParser($this->result);
+            }
         }
 
         // 计算执行时间并记录SQL
@@ -1679,6 +1704,7 @@ class DbCore implements DbInterface
         $this->query = null;
         $this->error = null;
         $this->result = [];
+        $this->joinNodes = []; // 重置子节点查询配置
         $this->transactionCount = 0;
     }
 
@@ -1810,7 +1836,7 @@ class DbCore implements DbInterface
      * @param bool $withTime 是否包含执行时间
      * @return string|array 最后执行的SQL语句
      */
-    public static function getLastSql($withTime = false)
+    public static function lastQuery($withTime = false)
     {
         $logs = self::getSqlLogs();
         if (empty($logs)) {
@@ -1912,6 +1938,173 @@ class DbCore implements DbInterface
         
         return $this->query($query, false);
     }
+
+    /**
+     * 定义子节点查询
+     * 
+     * @param string $alias 子节点名称，将作为结果集中的键名
+     * @param array $columns 子节点要查询的字段，格式为 ['字段别名' => '表.字段名']
+     * @return $this
+     */
+    public function joinNode($alias, $columns)
+    {
+        // 检查是否有JOIN语句
+        if (is_null($this->join)) {
+            return $this;
+        }
+        
+        $this->joinNodes[] = $alias;
+
+        // 构建字段列表
+        $fieldList = [];
+        foreach ($columns as $alias => $field) {
+            $fieldList[] = "{$field} AS {$alias}";
+        }
+
+        // 使用子查询构建嵌套数据
+        $subQuery = "(SELECT " . implode(', ', $fieldList) . " FROM " . $this->from . " WHERE " . $this->where . ")";
+        
+        // 将子查询添加到SELECT中
+        $this->select("({$subQuery}) AS {$alias}");
+        
+        // 添加GROUP BY子句
+        if (is_null($this->groupBy)) {
+            $this->group($this->from . '.id');
+        }
+                    
+        return $this;
+    }
+
+    /**
+     * 解析查询结果中的子查询数据
+     * 递归处理结果集中的子节点数据
+     * 
+     * @param mixed $results 查询结果
+     * @return mixed 处理后的结果
+     */
+    protected function nodeParser($results)
+    {
+        if (empty($this->joinNodes)) {
+            return $results;
+        }
+        
+        // 使用array_walk_recursive递归处理所有结果
+        array_walk_recursive($results, function(&$value, $key) {
+            // 处理嵌套对象
+            if (is_object($value)) {
+                return;
+            }
+            
+            // 如果键名在joinNodes中，处理子查询结果
+            if (in_array($key, $this->joinNodes)) {
+                // 将子查询结果转换为数组
+                if (is_string($value)) {
+                    $value = json_decode($value, true);
+                }
+            }
+        });
+        
+        return $results;
+    }
+
+    /**
+     * 设置排序
+     * 
+     * @param string|array $columns 排序字段
+     * @param string $order 排序方式
+     * @return $this
+     */
+    public function order($columns, $order = 'ASC')
+    {
+        if (is_array($columns)) {
+            $this->orderBy = implode(', ', array_map(function($column) use ($order) {
+                return "{$column} {$order}";
+            }, $columns));
+        } else {
+            // 处理特殊情况如RAND()
+            if (strtolower($columns) === 'rand()') {
+                $this->orderBy = $columns;
+            } else if (stristr($columns, ' ')) {
+                // 如果已经包含空格，可能已经指定了排序方向
+                $this->orderBy = $columns;
+            } else {
+                $this->orderBy = "{$columns} {$order}";
+            }
+        }
+        return $this;
+    }
+
+    /**
+     * 判断字段为NULL
+     * 
+     * @param string|array $column 字段名
+     * @return $this
+     */
+    public function isNull($column)
+    {
+        if (is_array($column)) {
+            foreach ($column as $col) {
+                $this->where($col, 'IS NULL');
+            }
+        } else {
+            $this->where($column, 'IS NULL');
+        }
+        return $this;
+    }
+
+    /**
+     * OR条件判断字段为NULL
+     * 
+     * @param string|array $column 字段名
+     * @return $this
+     */
+    public function orIsNull($column)
+    {
+        if (is_array($column)) {
+            foreach ($column as $col) {
+                $this->orWhere($col, 'IS NULL');
+            }
+        } else {
+            $this->orWhere($column, 'IS NULL');
+        }
+        return $this;
+    }
+
+    /**
+     * 判断字段不为NULL
+     * 
+     * @param string|array $column 字段名
+     * @return $this
+     */
+    public function notNull($column)
+    {
+        if (is_array($column)) {
+            foreach ($column as $col) {
+                $this->where($col, 'IS NOT NULL');
+            }
+        } else {
+            $this->where($column, 'IS NOT NULL');
+        }
+        return $this;
+    }
+
+    /**
+     * OR条件判断字段不为NULL
+     * 
+     * @param string|array $column 字段名
+     * @return $this
+     */
+    public function orNotNull($column)
+    {
+        if (is_array($column)) {
+            foreach ($column as $col) {
+                $this->orWhere($col, 'IS NOT NULL');
+            }
+        } else {
+            $this->orWhere($column, 'IS NOT NULL');
+        }
+        return $this;
+    }
 }
 
 /**
@@ -1987,4 +2180,51 @@ class DbCore implements DbInterface
  * // 指定递减值的列值递减
  * Db::table('products')->where('id', 1)->dec('stock', 10);
  * // 结果: UPDATE products SET stock = stock - 10 WHERE id = 1
+ * 
+ * // 子节点查询示例 (仅支持MySQL 5.7+):
+ * // 获取用户及其关联订单
+ * $user = Db::table('users AS u')
+ *     ->select('u.*')
+ *     ->leftJoin('orders AS o', 'o.user_id', '=', 'u.id')
+ *     ->joinNode('orders', [
+ *         'id' => 'o.id',
+ *         'amount' => 'o.amount',
+ *         'created_at' => 'o.created_at'
+ *     ])
+ *     ->where('u.id', 1)
+ *     ->group('u.id')  // 必须添加GROUP BY分组
+ *     ->get();
+ * // 结果: 
+ * // [
+ * //     'id' => 1,
+ * //     'username' => 'test',
+ * //     'email' => 'test@example.com',
+ * //     'orders' => [
+ * //         [
+ * //             'id' => 101,
+ * //             'amount' => 199.99,
+ * //             'created_at' => '2023-01-01 10:00:00'
+ * //         ],
+ * //         [
+ * //             'id' => 102,
+ * //             'amount' => 299.99,
+ * //             'created_at' => '2023-01-05 14:30:00'
+ * //         ]
+ * //     ]
+ * // ]
+ * 
+ * // 使用first()方法获取子节点数据
+ * $user = Db::table('users AS u')
+ *     ->select('u.*')
+ *     ->leftJoin('orders AS o', 'o.user_id', '=', 'u.id')
+ *     ->joinNode('orders', [
+ *         'id' => 'o.id',
+ *         'amount' => 'o.amount'
+ *     ])
+ *     ->where('u.id', 1)
+ *     ->group('u.id')
+ *     ->first();
+ * 
+ * // 注意: joinNode 方法依赖 MySQL 5.7+ 的 JSON 函数，在其他数据库中不可用。
+ * // 如果需要跨数据库支持，请使用原生SQL或多次查询手动构建嵌套数据。
  */
