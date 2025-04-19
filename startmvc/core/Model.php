@@ -8,74 +8,296 @@
  * @link      http://startmvc.com
  */
 namespace startmvc\core;
-use startmvc\core\db\DbCore;
 
+/**
+ * Model基类 - 提供模型的基础功能，支持自动继承Db类方法
+ */
 abstract class Model
 {
+	/**
+	 * 表名
+	 * @var string
+	 */
 	protected $table;
-	protected $db;
+	
+	/**
+	 * 主键
+	 * @var string
+	 */
+	protected $pk = 'id';
+	
+	/**
+	 * 数据库配置
+	 * @var array
+	 */
 	protected $dbConf;
+	
+	/**
+	 * 模型数据
+	 * @var array
+	 */
+	protected $data = [];
 
-	public function __construct ()
+	/**
+	 * 构造函数
+	 */
+	public function __construct()
 	{
+		// 只加载配置，不创建连接实例
 		$this->dbConf = include CONFIG_PATH . '/database.php';
-		if ($this->dbConf['driver'] != '') {
-			$this->db= new Db($this->dbConf['connections'][$this->dbConf['driver']]);
-		}
-
 	}
-
-
-	//查询单条数据
-	public function find($field="*",$where='')
+	
+	/**
+	 * 设置表名
+	 * 
+	 * @param string $table 表名
+	 * @return $this
+	 */
+	public function table($table)
 	{
-		$res=self::findAll($field,$where,'',1);
-		if($res){
-			return $res[0];
+		$this->table = $table;
+		return $this;
+	}
+	
+	/**
+	 * 设置模型数据
+	 * 
+	 * @param array $data 数据
+	 * @return $this
+	 */
+	public function data($data)
+	{
+		$this->data = array_merge($this->data, $data);
+		return $this;
+	}
+	
+	/**
+	 * 插入数据
+	 * 
+	 * @param array $data 数据
+	 * @return int|bool 插入ID或结果
+	 */
+	public function insert($data = [])
+	{
+		if (!empty($data)) {
+			$this->data = $data;
+		}
+		
+		return Db::table($this->table)->insert($this->data);
+	}
+	
+	/**
+	 * 更新数据
+	 * 
+	 * @param array $data 要更新的数据
+	 * @param mixed $where 条件(数组、字符串或整数id)
+	 * @return int|bool 影响行数或结果
+	 */
+	public function update($data, $where = [])
+	{
+		if (!empty($data)) {
+			$this->data = $data;
+		}
+		
+		$query = Db::table($this->table);
+		
+		if (!empty($where)) {
+			if (is_numeric($where)) {
+				// 如果是纯数字，认为是按主键查询
+				$query->where($this->pk, $where);
+			} elseif (is_array($where)) {
+				// 如果是数组，则按条件数组处理
+				$query->where($where);
+			} elseif (is_string($where)) {
+				// 如果是字符串，判断是否为条件表达式
+				if (preg_match('/[=<>!]/', $where)) {
+					// 包含运算符，视为条件表达式
+					$query->where($where);
+				} else {
+					// 不包含运算符，视为主键值
+					$query->where($this->pk, $where);
+				}
+			}
+		}
+		
+		return $query->update($this->data);
+	}
+	
+	/**
+	 * 保存数据（自动判断插入或更新）
+	 * 
+	 * @param array $data 数据
+	 * @return int|bool 结果
+	 */
+	public function save($data = [])
+	{
+		if (!empty($data)) {
+			$this->data = $data;
+		}
+		
+		if (isset($this->data[$this->pk]) && !empty($this->data[$this->pk])) {
+			// 有主键，执行更新
+			$id = $this->data[$this->pk];
+			$updateData = $this->data;
+			return $this->update($updateData, $id);
+		} else {
+			// 无主键，执行插入
+			return $this->insert();
 		}
 	}
 	
-	//查询多条数据
-	public function findAll($field="*",$where=[],$order='',$limit='')
+	/**
+	 * 删除数据
+	 * 
+	 * @param mixed $where 条件(数组、字符串或整数id)
+	 * @return int|bool 影响行数或结果
+	 */
+	public function delete($where = null)
 	{
-		//$prefix=$this->dbConf['connections'][$this->dbConf['default']]['prefix'];
-		$this->db->select($field);
-		$this->db->table($this->table);
-		if (!empty($where)) {
-			$this->db->where($where);
-		}
-		if($order){
-			$this->db->order($order);
-		}
-		if ($limit){
-			if(is_numeric($limit)){
-				$this->db->limit($limit);
-			}else{
-				$limit_arr=explode(',',$limit);
-				$this->db->limit($limit_arr[0],$limit_arr[1]);
+		$query = Db::table($this->table);
+		
+		if ($where !== null) {
+			if (is_numeric($where)) {
+				// 数字条件转为主键条件
+				$query->where($this->pk, $where);
+			} else {
+				$query->where($where);
 			}
 		}
-		return $this->db->get();
+		
+		return $query->delete();
 	}
-	//更新数据
-	public function update($data,$where=[])
+	
+	/**
+	 * 魔术方法：调用不存在的方法时自动调用db对象的方法
+	 * 
+	 * @param string $method 方法名
+	 * @param array $args 参数
+	 * @return mixed 返回结果
+	 */
+	public function __call($method, $args)
 	{
-		$this->db->table($this->table);
-		if ($where){
-			$this->db->where($where);
+		$query = Db::table($this->table);
+		
+		if (method_exists($query, $method)) {
+			return call_user_func_array([$query, $method], $args);
 		}
-		return $this->db->update($data);
+		
+		throw new \Exception("方法 {$method} 不存在");
 	}
-	//删除数据
-	public function delete($where='')
+	
+	/**
+	 * 查找单条记录
+	 * 
+	 * @param mixed $where 查询条件(主键值、条件数组或字符串条件表达式)
+	 * @param string|array $fields 查询字段，默认为*
+	 * @return array|null 返回符合条件的单条记录
+	 */
+	public function find($where, $fields = '*')
 	{
-		$this->db->table($this->table);
-		if ($where){
-			$where=!is_numeric($where)?:['id'=>$where];
-			$where=$this->db->where($where);
+		$query = Db::table($this->table);
+		
+		// 设置查询字段
+		$query->select($fields);
+		
+		// 处理查询条件
+		if (is_numeric($where)) {
+			// 如果是纯数字，认为是按主键查询
+			$query->where($this->pk, $where);
+		} elseif (is_array($where)) {
+			// 如果是数组，则按条件数组处理
+			$query->where($where);
+		} elseif (is_string($where)) {
+			// 如果是字符串，判断是否为条件表达式
+			if (preg_match('/[=<>!]/', $where)) {
+				// 包含运算符，视为条件表达式
+				$query->where($where);
+			} else {
+				// 不包含运算符，视为主键值
+				$query->where($this->pk, $where);
+			}
 		}
-		return $this->db->delete();
+		
+		// 限制只返回一条记录
+		$query->limit(1);
+		
+		// 执行查询
+		$result = $query->get();
+		
+		// 返回单条记录或null
+		return !empty($result) ? $result[0] : null;
 	}
-
-
+	
+	
+	/**
+	 * 查找多条记录
+	 * 
+	 * @param mixed $where 查询条件(条件数组或字符串条件表达式)
+	 * @param string|array $fields 查询字段，默认为*
+	 * @param string|array $order 排序方式
+	 * @param int|string $limit 查询限制
+	 * @return array 返回符合条件的记录集
+	 */
+	public function findAll($where = [], $fields = '*', $order = '', $limit = '')
+	{
+		$query = Db::table($this->table);
+		
+		// 设置查询字段
+		$query->select($fields);
+		
+		// 处理查询条件
+		if (!empty($where)) {
+			if (is_array($where)) {
+				$query->where($where);
+			} elseif (is_string($where)) {
+				// 字符串条件
+				$query->where($where);
+			}
+		}
+		
+		// 设置排序
+		if (!empty($order)) {
+			if (is_array($order)) {
+				foreach ($order as $field => $sort) {
+					if (is_numeric($field)) {
+						$query->order($sort);
+					} else {
+						$query->order($field, $sort);
+					}
+				}
+			} else {
+				$query->order($order);
+			}
+		}
+		
+		// 设置查询限制
+		if (!empty($limit)) {
+			if (is_numeric($limit)) {
+				$query->limit($limit);
+			} elseif (is_string($limit) && strpos($limit, ',') !== false) {
+				list($offset, $rows) = explode(',', $limit);
+				$query->limit($rows, $offset);
+			}
+		}
+		
+		// 执行查询
+		return $query->get();
+	}
+	
+	/**
+	 * 静态方法：实例化模型
+	 * 
+	 * @param string $table 表名
+	 * @return static 模型实例
+	 */
+	public static function model($table = null)
+	{
+		$model = new static();
+		
+		if ($table !== null) {
+			$model->table($table);
+		}
+		
+		return $model;
+	}
 }
