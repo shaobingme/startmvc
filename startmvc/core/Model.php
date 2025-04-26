@@ -300,4 +300,60 @@ abstract class Model
 		
 		return $model;
 	}
+
+	/**
+	 * 分页查询方法
+	 * 
+	 * @param int $pageSize 每页记录数
+	 * @param int $currentPage 当前页码
+	 * @param mixed $where 查询条件
+	 * @param string $order 排序方式
+	 * @return array 包含数据和分页信息的数组
+	 */
+	public function paginate($pageSize = 10, $currentPage = 1, $where = [], $order = '')
+	{
+		// 查询总记录数
+		$total = $this->count($where);
+		
+		// 计算总页数
+		$totalPages = ceil($total / $pageSize);
+		
+		// 确保当前页码有效
+		$currentPage = max(1, min($totalPages, $currentPage));
+		
+		// 查询当前页数据
+		$query = Db::table($this->table);
+		
+		// 处理查询条件
+		if (!empty($where)) {
+			if (is_array($where)) {
+				$query->where($where);
+			} elseif (is_string($where)) {
+				$query->where($where);
+			}
+		}
+		
+		// 设置排序
+		if (!empty($order)) {
+			$query->order($order);
+		}
+		
+		// 设置分页
+		$query->page($pageSize, $currentPage);
+		
+		// 执行查询
+		$data = $query->get();
+		
+		// 返回分页数据
+		return [
+			'data' => $data,
+			'pagination' => [
+				'total' => $total,
+				'per_page' => $pageSize,
+				'current_page' => $currentPage,
+				'total_pages' => $totalPages,
+				'has_more' => $currentPage < $totalPages
+			]
+		];
+	}
 }
