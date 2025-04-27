@@ -17,8 +17,8 @@ if (version_compare(PHP_VERSION , '7.2', '<')) {
 }
 session_start();
 //版本号
-define('SM_VERSION', '2.3.1');
-define('SM_UPDATE', '20250426');
+define('SM_VERSION', '2.3.2');
+define('SM_UPDATE', '20250428');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');
 //应用目录
@@ -41,12 +41,14 @@ define('START_TIME',  microtime(true));
 require __DIR__ . '/function.php';
 
 // 注册自动加载
-spl_autoload_register(function($class) {
-    $file = ROOT_PATH . DS . str_replace('\\', DS, $class) . '.php';
-    if (file_exists($file)) {
-        require $file;
-    }
-});
+if (is_file(ROOT_PATH . 'vendor'.DS.'autoload.php')) {
+    // 优先使用 Composer 自动加载
+    require ROOT_PATH . 'vendor'.DS.'autoload.php';
+} else {
+    // 框架自动加载
+    require __DIR__ . '/autoload.php';
+    Autoload::register();
+}
 
 // 创建应用实例并运行
 $app = new \startmvc\core\App();

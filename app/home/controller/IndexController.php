@@ -3,7 +3,7 @@ namespace app\home\controller;
 //use startmvc\core\Controller;
 use app\common\BaseController;
 use startmvc\core\Config;
-use startmvc\core\Db;
+//use startmvc\core\Db;
 
 class IndexController extends BaseController{
 	

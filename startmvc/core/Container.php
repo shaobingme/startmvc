@@ -1,4 +1,10 @@
 <?php
+namespace startmvc\core;
+/**
+ * 容器类
+ * 用于管理和解析依赖关系
+ */
+
 class Container
 {
     protected static $instances = [];
