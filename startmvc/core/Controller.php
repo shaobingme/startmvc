@@ -52,6 +52,7 @@ abstract class Controller
 	protected function assign($name=[], $data='')
 	{
 		$this->view->assign($name, $data);
+		return $this; // 支持链式调用
 	}
 
 	/**
@@ -60,13 +61,21 @@ abstract class Controller
 	 
 	protected function display($tplfile='',$data=[])
 	{
-		echo $this->view->display($tplfile,$data);
+		// 直接调用视图的display方法，不返回内容
+		$this->view->display($tplfile,$data);
+	}
+	
+	/**
+	 * 获取渲染内容但不输出
+	 */
+	protected function fetch($tplfile='',$data=[])
+	{
+		return $this->view->fetch($tplfile,$data);
 	}
 	
 	/**
 	 * 调用内容
 	 */
-
 	public function content($content)
 	{
 		header('Content-Type:text/plain; charset=utf-8');
