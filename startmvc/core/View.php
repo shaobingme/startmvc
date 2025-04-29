@@ -218,16 +218,32 @@ class view{
 	}
 
 	// 获取被包含模板的路径
-	public function getInclude($name = null){
+	public function getInclude($name = null) {
 		if (empty($name)) {
-			return '';
+			return ''; 
 		}
-		$tplFile = $this->tpl_template_dir.$name.'.php';
-		$cacheFile = $this->tpl_compile_dir . $name . '.php';
-		if(file_exists($tplFile)){
-			$this->_compile($tplFile,$cacheFile);
-			return $cacheFile;
+		
+		$tplFile = $this->tpl_template_dir . $name . '.php';
+		
+		if (file_exists($tplFile)) {
+			// 读取包含文件内容
+			$content = file_get_contents($tplFile);
+			
+			// 递归编译包含文件中的包含标签
+			$content = preg_replace_callback(
+				'/{include\s+([^}]+)}/i',
+				function($matches) {
+					return $this->getInclude($matches[1]);
+				},
+				$content
+			);
+			
+			// 编译其他模板标签
+			$content = preg_replace(array_keys(self::$rules), self::$rules, $content);
+			
+			return "<?php /* 包含: {$name} */ ?>\n" . $content;
 		}
+		
 		return '';
 	}
 	
