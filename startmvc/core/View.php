@@ -66,7 +66,7 @@ class view{
 
 		// require|include tag
 		'/{include\s+([^}]+)\}/i'=> '<?php include $this->getInclude(\'${1}\')?>',
-		
+
 		// comment tag (不会被解析)
 		'/{\/\*(.*?)\*\/}/s' => '',
 		
@@ -200,27 +200,27 @@ class view{
 		
 		// 执行模板标签替换
 		$content = preg_replace(array_keys(self::$rules), self::$rules, $content);
-		
+
 		// 增加编译后的钩子
 		if (method_exists($this, 'afterCompile')) {
 			$content = $this->afterCompile($content);
 		}
 
 		// 确保缓存目录存在
-		if (!is_dir($tplCacheDir)) {
-			mkdir($tplCacheDir, 0777, true);
-		}
+			if (!is_dir($tplCacheDir)) {
+				mkdir($tplCacheDir, 0777, true);
+			}
 		
 		// 添加编译时间戳注释
 		$content = "<?php /* 模板编译于: " . date('Y-m-d H:i:s') . " */ ?>\n" . $content;
 		
-		file_put_contents($cacheFile, $content, LOCK_EX);
+			file_put_contents($cacheFile, $content, LOCK_EX);
 	}
 
 	// 获取被包含模板的路径
 	public function getInclude($name = null) {
 		if (empty($name)) {
-			return ''; 
+			return '';
 		}
 		
 		$tplFile = $this->tpl_template_dir . $name . '.php';
@@ -275,9 +275,9 @@ class view{
 					@rmdir($path);
 				} else {
 					@unlink($path);
-				}
-			}
 		}
+			}
+	}
 		closedir($handle);
 	}
 }
