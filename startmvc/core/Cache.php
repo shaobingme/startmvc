@@ -12,48 +12,88 @@ namespace startmvc\core;
 use startmvc\core\Config;
 
 class Cache {
+	/**
+	 * 缓存驱动实例
+	 * @var object
+	 */
 	private $drive;
-	public function __construct(string $driveName, array $params = array()) {
-		$config=Config::load('cache');
-		$driveName=$driveName??$config['drive'];
-		$params=$params?$params:$config[$driveName];
-	    $classFile = __DIR__ . DS .'cache'.DS. ucfirst($driveName) . '.php';
-	    
-	    // 检查类文件是否存在
-	    if (file_exists($classFile)) {
-	        // 加载类文件
-	        //require_once $classFile;
-	         $className = 'startmvc\\core\\cache\\' . ucfirst($driveName);
-	        // 检查类是否存在
-	        if (class_exists($className)) {
-	            // 实例化类
-	            $this->drive = new $className($params);
-	        } else {
-	            // 处理类不存在的情况
-	            throw new \Exception("类 $className 不存在");
-	        }
-	    } else {
-	        // 处理文件不存在的情况
-	        throw new \Exception("文件 $classFile 没有找到");
-	    }
+	
+	/**
+	 * 构造函数，初始化缓存驱动
+	 * @param string $driveName 驱动名称，默认从配置读取
+	 * @param array $params 驱动参数
+	 * @throws \Exception 当驱动不存在时抛出异常
+	 */
+	public function __construct(string $driveName = null, array $params = []) {
+		$config = Config::load('cache');
+		$driveName = $driveName ?? $config['drive'];
+		$params = $params ?: $config[$driveName];
+		
+		$className = 'startmvc\\core\\cache\\' . ucfirst($driveName);
+		
+		if (!class_exists($className)) {
+			throw new \Exception("缓存驱动 {$driveName} 不存在");
+		}
+		
+		$this->drive = new $className($params);
 	}
-  public function set(string $key, $val) {
-    $this->drive->set($key, $val);
-    return $this;
-  }
-  public function has(string $key) {
-    return $this->drive->has($key);
-  }
-  public function get(string $key) {
-    return $this->drive->get($key);
-  }
-  public function delete(string $key) {
-    $this->drive->delete($key);
-    return $this;
-  }
-  public function clear() {
-    $this->drive->clear();
-    return $this;
-  }
-
+	
+	/**
+	 * 设置缓存
+	 * @param string $key 缓存键名
+	 * @param mixed $val 缓存数据
+	 * @return $this
+	 */
+	public function set(string $key, $val) {
+		$this->drive->set($key, $val);
+		return $this;
+	}
+	
+	/**
+	 * 检查缓存是否存在
+	 * @param string $key 缓存键名
+	 * @return bool
+	 */
+	public function has(string $key) {
+		return $this->drive->has($key);
+	}
+	
+	/**
+	 * 获取缓存
+	 * @param string $key 缓存键名
+	 * @return mixed
+	 */
+	public function get(string $key) {
+		return $this->drive->get($key);
+	}
+	
+	/**
+	 * 删除缓存
+	 * @param string $key 缓存键名
+	 * @return $this
+	 */
+	public function delete(string $key) {
+		$this->drive->delete($key);
+		return $this;
+	}
+	
+	/**
+	 * 清空所有缓存
+	 * @return $this
+	 */
+	public function clear() {
+		$this->drive->clear();
+		return $this;
+	}
+	
+	/**
+	 * 创建缓存实例的静态方法
+	 * @param string $driver 驱动名称
+	 * @param array $params 驱动参数
+	 * @return Cache
+	 */
+	public static function store(string $driver = null, array $params = [])
+	{
+		return new self($driver, $params);
+	}
 }

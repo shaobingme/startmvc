@@ -32,25 +32,25 @@ class Http
         // 类型转换
         $type = isset($options['type']) ? $options['type'] : '';
         if ($type) {
-            switch ($type) {
-                case 'string':
-                    $val = (string)$val;
-                    break;
-                case 'int':
-                    $val = (int)$val;
-                    break;
-                case 'float':
-                    $val = (float)$val;
-                    break;
-                case 'array':
-                    $val = (array)$val;
-                    break;
-                case 'bool':
-                    $val = (bool)$val;
-                    break;
-                default:
-                    $val = (string)$val;
-            }
+	        switch ($type) {
+	            case 'string':
+	                $val = (string)$val;
+	                break;
+	            case 'int':
+	                $val = (int)$val;
+	                break;
+	            case 'float':
+	                $val = (float)$val;
+	                break;
+	            case 'array':
+	                $val = (array)$val;
+	                break;
+	            case 'bool':
+	                $val = (bool)$val;
+	                break;
+	            default:
+	                $val = (string)$val;
+	        }
         }
 
         // 应用函数处理
