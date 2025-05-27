@@ -9,6 +9,7 @@
  */
 
 use startmvc\core\Config;
+use startmvc\core\Cache;
 
 /**
  * 语言包调用
@@ -108,6 +109,45 @@ function config($key = null, $default = null)
 	
 	// 返回指定配置项，如果不存在返回默认值
 	return isset($config[$key]) ? $config[$key] : $default;
+}
+
+/**
+ * 缓存助手函数
+ * 
+ * @param string $name 缓存名称（注意命名唯一性，防止重复）
+ * @param mixed $value 缓存值，为null时表示获取缓存
+ * @param int $expire 缓存时间（秒），默认3600秒
+ * @param string $driver 缓存驱动，默认使用配置中的驱动
+ * @return mixed 获取缓存时返回缓存值，设置缓存时返回true/false
+ */
+function cache($name, $value = null, $expire = 3600, $driver = null)
+{
+    static $instance = [];
+    
+    // 获取缓存驱动实例
+    $driverName = $driver ?: config('cache.drive', 'file');
+    if (!isset($instance[$driverName])) {
+        $instance[$driverName] = Cache::store($driverName);
+    }
+    
+    // 获取缓存
+    if ($value === null) {
+        return $instance[$driverName]->get($name);
+    }
+    
+    // 删除缓存
+    if ($value === false) {
+        return $instance[$driverName]->delete($name);
+    }
+    
+    // 自定义缓存参数
+    $cacheConfig = config('cache.' . $driverName, []);
+    if ($expire !== 3600) {
+        $cacheConfig['cacheTime'] = $expire;
+    }
+    
+    // 设置缓存
+    return $instance[$driverName]->set($name, $value);
 }
 
 /**
