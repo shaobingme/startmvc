@@ -79,36 +79,37 @@ function dump($var, $label = null, $echo = true)
 
 /**
  * 配置文件函数
- * @param string $key
- * @param mixed $default
+ * @param string|array $key 配置键名或配置数组
+ * @param mixed $value 配置值，不提供则为获取配置
  * @return mixed
  */
-function config($key = null, $default = null)
+function config($key = null, $value = null)
 {
-	static $config = null;
-	
-	// 如果配置未加载，先加载配置
-	if ($config === null) {
-		// 加载公共配置文件
-		$commonConfig = require ROOT_PATH . '/config/common.php';
-		
-		// 如果有环境配置文件，也加载它
-		$envConfig = [];
-		if (file_exists(ROOT_PATH . '/config/' . ENV . '.php')) {
-			$envConfig = require ROOT_PATH . '/config/' . ENV . '.php';
-		}
-		
-		// 合并配置
-		$config = array_merge($commonConfig, $envConfig);
-	}
-	
-	// 如果没有指定 key，返回所有配置
+	// 获取所有配置
 	if ($key === null) {
-		return $config;
+		return \startmvc\core\Config::get();
 	}
 	
-	// 返回指定配置项，如果不存在返回默认值
-	return isset($config[$key]) ? $config[$key] : $default;
+	// 加载配置文件
+	if (is_string($key) && strpos($key, '@') === 0) {
+		return \startmvc\core\Config::load(substr($key, 1));
+	}
+	
+	// 设置多个配置
+	if (is_array($key)) {
+		foreach ($key as $k => $v) {
+			\startmvc\core\Config::set($k, $v);
+		}
+		return true;
+	}
+	
+	// 设置单个配置
+	if (func_num_args() > 1) {
+		return \startmvc\core\Config::set($key, $value);
+	}
+	
+	// 获取配置
+	return \startmvc\core\Config::get($key);
 }
 
 /**

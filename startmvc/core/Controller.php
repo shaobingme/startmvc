@@ -21,7 +21,7 @@ abstract class Controller
 	
 	public function __construct()
 	{
-		$this->conf = include CONFIG_PATH . 'common.php';
+		//$this->conf = config();
 		$this->view = new View();
 	}
 	/**
@@ -37,8 +37,8 @@ abstract class Controller
 	 */
 	protected function url($url)
 	{
-		$url = $url . $this->conf['url_suffix'];
-		if ($this->conf['urlrewrite']) {
+		$url = $url . config['url_suffix'];
+		if (config['urlrewrite']) {
 			$url = '/' . $url;
 		} else {
 			$url = '/index.php/' . $url;
