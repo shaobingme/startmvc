@@ -14,7 +14,7 @@ class IndexController extends BaseController{
 
 		//$result=Db::select('id')->table('article')->get();
 		//dump($result);
-		
+
 		$this->assign($data);
 		$this->display();
 	}
