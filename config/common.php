@@ -21,4 +21,12 @@ return [
     'locale'  => 'zh_cn',	//指定默认语言，小写
     'db_auto_connect'  => true,	//是否开启数据库自动连接
     'theme'  => '',	//指定模板子目录，方便多风格使用，为空时模板文件在view下
+    
+    // Session安全配置（精简版）
+    'session' => [
+        'cookie_httponly' => true,       // 防止JavaScript访问Cookie
+        'use_only_cookies' => true,      // 只使用Cookie存储会话ID
+        'cookie_lifetime' => 7200,       // 会话Cookie生存时间（秒）
+        'gc_maxlifetime' => 7200,        // 垃圾回收时间（秒）
+    ],
 ];

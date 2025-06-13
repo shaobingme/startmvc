@@ -179,18 +179,29 @@ class App
 				$uri = trim($uri, '/');
 			}
 			
+			// 获取URL后缀配置
+			$urlSuffix = Config::get('common.url_suffix', '');
+			
+			// 如果配置了URL后缀且URI以该后缀结尾，则移除后缀
+			if (!empty($urlSuffix) && strlen($uri) > strlen($urlSuffix)) {
+				$suffixPos = strrpos($uri, $urlSuffix);
+				if ($suffixPos !== false && $suffixPos == strlen($uri) - strlen($urlSuffix)) {
+					$uri = substr($uri, 0, $suffixPos);
+				}
+			}
+			
 			// 如果URI为空，使用默认路由
 			if (empty($uri)) {
-				$module = 'home';  // 默认模块
-				$controller = 'Index';  // 默认控制器
-				$action = 'index';  // 默认方法
+				$module = Config::get('common.default_module', 'home');
+				$controller = Config::get('common.default_controller', 'Index');
+				$action = Config::get('common.default_action', 'index');
 				$params = [];
 			} else {
 				// 解析URI
 				$parts = explode('/', $uri);
-				$module = isset($parts[0]) ? $parts[0] : 'home';
-				$controller = isset($parts[1]) ? ucfirst($parts[1]) : 'Index';
-				$action = isset($parts[2]) ? $parts[2] : 'index';
+				$module = isset($parts[0]) ? $parts[0] : Config::get('common.default_module', 'home');
+				$controller = isset($parts[1]) ? ucfirst($parts[1]) : Config::get('common.default_controller', 'Index');
+				$action = isset($parts[2]) ? $parts[2] : Config::get('common.default_action', 'index');
 				$params = array_slice($parts, 3);
 			}
 			
@@ -198,9 +209,9 @@ class App
 			if (!is_dir(APP_PATH . $module)) {
 				// 模块不存在，使用默认模块
 				$params = array_merge([$controller, $action], $params);
-				$module = 'home';
-				$controller = 'Index';
-				$action = 'index';
+				$module = Config::get('common.default_module', 'home');
+				$controller = Config::get('common.default_controller', 'Index');
+				$action = Config::get('common.default_action', 'index');
 			}
 			
 			// 使用原有的startApp方法

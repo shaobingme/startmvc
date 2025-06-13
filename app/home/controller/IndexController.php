@@ -18,4 +18,5 @@ class IndexController extends BaseController{
 		$this->assign($data);
 		$this->display();
 	}
+
 }

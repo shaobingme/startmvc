@@ -22,6 +22,7 @@ class view{
 	public $compiled_file='';
 	protected $left_delimiter_quote;
 	protected $right_delimiter_quote;
+	protected $tpl_suffix = '.php'; // 默认模板后缀
 
 
 	private static $rules = [
@@ -94,6 +95,12 @@ class view{
 		
 		// 读取配置的缓存时间
 		$this->tpl_cache_time = intval(config('tpl_cache_time', 0));
+		
+		// 读取模板后缀配置
+		$viewConfig = Config::load('view');
+		if (isset($viewConfig['suffix']) && !empty($viewConfig['suffix'])) {
+			$this->tpl_suffix = $viewConfig['suffix'];
+		}
 	}
 
 	//模板赋值
@@ -109,16 +116,46 @@ class view{
 		}
 		return $this; // 支持链式调用
 	}
+	
+	/**
+	 * 获取模板文件路径和缓存文件路径
+	 * 
+	 * @param string $name 模板名称
+	 * @return array 包含模板文件路径和缓存文件路径的数组
+	 */
+	protected function getTemplatePaths($name) {
+		if ($name == '') {
+			$name = strtolower(CONTROLLER . DS . ACTION);
+		}
+		
+		// 检查是否已经包含文件扩展名
+		$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
+		$hasExtension = !empty($fileExtension);
+		
+		// 基础路径（不包含扩展名）
+		$baseName = $hasExtension ? substr($name, 0, strrpos($name, '.')) : $name;
+		
+		// 模板文件路径
+		$tplFile = $this->tpl_template_dir . $baseName;
+		if ($hasExtension) {
+			$tplFile .= '.' . $fileExtension;
+		} else {
+			$tplFile .= $this->tpl_suffix;
+		}
+		
+		// 缓存文件路径（始终使用.php后缀）
+		$cacheFile = $this->tpl_compile_dir . $baseName . '.php';
+		
+		return ['tplFile' => $tplFile, 'cacheFile' => $cacheFile];
+	}
 
 	//视图渲染 支持多级目录
 	public function display($name='', $data=[])
 	{
-		if ($name == '') {
-			$name = strtolower(CONTROLLER . DS . ACTION);
-		}
-
-		$tplFile = $this->tpl_template_dir . $name .'.php';
-		$cacheFile = $this->tpl_compile_dir . $name .'.php';
+		$paths = $this->getTemplatePaths($name);
+		$tplFile = $paths['tplFile'];
+		$cacheFile = $paths['cacheFile'];
+		
 		// 模板文件不存在直接返回
 		if (!file_exists($tplFile)) {
 			throw new \Exception($tplFile.' 模板文件不存在');
@@ -144,12 +181,10 @@ class view{
 	// 返回渲染后的内容，而不是直接输出
 	public function fetch($name='', $data=[])
 	{
-		if ($name == '') {
-			$name = strtolower(CONTROLLER . DS . ACTION);
-		}
-
-		$tplFile = $this->tpl_template_dir . $name .'.php';
-		$cacheFile = $this->tpl_compile_dir . $name .'.php';
+		$paths = $this->getTemplatePaths($name);
+		$tplFile = $paths['tplFile'];
+		$cacheFile = $paths['cacheFile'];
+		
 		// 模板文件不存在直接返回
 		if (!file_exists($tplFile)) {
 			throw new \Exception($tplFile.' 模板文件不存在');
@@ -223,7 +258,13 @@ class view{
 			return '';
 		}
 		
-		$tplFile = $this->tpl_template_dir . $name . '.php';
+		// 检查是否已经包含文件扩展名
+		$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
+		if (!empty($fileExtension)) {
+			$tplFile = $this->tpl_template_dir . $name;
+		} else {
+			$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
+		}
 		
 		if (file_exists($tplFile)) {
 			// 读取包含文件内容

@@ -15,10 +15,11 @@ defined('ROOT_PATH') or define('ROOT_PATH', dirname(__DIR__));
 if (version_compare(PHP_VERSION , '7.2', '<')) {
 	die('程序要求PHP7+环境版本，当前环境为PHP' . PHP_VERSION . ',请升级服务器环境');
 }
-session_start();
+
+
 //版本号
-define('SM_VERSION', '2.4.1');
-define('SM_UPDATE', '20250605');
+define('SM_VERSION', '2.4.2');
+define('SM_UPDATE', '20250613');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');
 //应用目录
@@ -49,6 +50,14 @@ if (is_file(ROOT_PATH . 'vendor'.DS.'autoload.php')) {
     require __DIR__ . '/autoload.php';
     Autoload::register();
 }
+
+// 设置默认时区
+$config = \startmvc\core\Config::load('common');
+$timezone = $config['timezone'] ?? 'Asia/Shanghai';
+date_default_timezone_set($timezone);
+
+// 启动会话
+\startmvc\core\Session::start();
 
 // 创建应用实例并运行
 $app = new \startmvc\core\App();
