@@ -66,7 +66,7 @@ class view{
 		'/\{lang\(\'([^\']+)\'\)\}/'=>'<?php echo lang(\'${1}\');?>',
 
 		// require|include tag
-		'/{include\s+([^}]+)\}/i'=> '<?php include $this->getInclude(\'${1}\')?>',
+		'/{include\s+([^}]+)\}/i'=> '<?php echo $this->getInclude(\'${1}\');?>',
 
 		// comment tag (不会被解析)
 		'/{\/\*(.*?)\*\/}/s' => '',
@@ -282,7 +282,7 @@ class view{
 			// 编译其他模板标签
 			$content = preg_replace(array_keys(self::$rules), self::$rules, $content);
 			
-			return "<?php /* 包含: {$name} */ ?>\n" . $content;
+			return $content;
 		}
 		
 		return '';

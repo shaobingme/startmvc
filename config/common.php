@@ -22,7 +22,7 @@ return [
     'db_auto_connect'  => true,	//是否开启数据库自动连接
     'theme'  => '',	//指定模板子目录，方便多风格使用，为空时模板文件在view下
     
-    // Session安全配置（精简版）
+    // Session安全配置
     'session' => [
         'cookie_httponly' => true,       // 防止JavaScript访问Cookie
         'use_only_cookies' => true,      // 只使用Cookie存储会话ID

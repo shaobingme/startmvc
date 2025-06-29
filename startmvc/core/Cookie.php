@@ -19,8 +19,8 @@ class Cookie
      */
     private static function getKey($key)
     {
-        $conf = Config::load();
-        return $conf['cookie_prefix'] . $key;
+	    $config=Config::load('common');
+        return $config['cookie_prefix'] . $key;
     }
     
     /**
