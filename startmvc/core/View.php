@@ -18,7 +18,8 @@ class view{
 	public $tpl_compile_dir = '';
 	public $tpl_safe_mode = false;
 	public $tpl_cache_time = 0; // 缓存时间(秒)，0表示不缓存
-	public $vars = array();
+	// 将 vars 改为静态属性，使所有视图实例共享变量
+	protected static $vars = array();
 	public $compiled_file='';
 	protected $left_delimiter_quote;
 	protected $right_delimiter_quote;
@@ -108,11 +109,11 @@ class view{
 		if (is_array($name)) {
 			foreach ($name as $k => $v) {
 				if ($k != '') {
-					$this->vars[$k] = $v;
+					self::$vars[$k] = $v; // 使用静态属性
 				}
 			}
 		} else {
-			$this->vars[$name] = $value;
+			self::$vars[$name] = $value; // 使用静态属性
 		}
 		return $this; // 支持链式调用
 	}
@@ -162,10 +163,10 @@ class view{
 		}
 		
 		if (!empty($data)) {
-			$this->vars = array_merge_recursive($this->vars, $data);
+			self::$vars = array_merge(self::$vars, $data); // 使用静态属性
 		}
 		// 将变量导入到当前
-		extract($this->vars);
+		extract(self::$vars); // 使用静态属性
 		// 获取渲染后的内容
 		ob_start();
 		$this->_compile($tplFile, $cacheFile);
@@ -191,10 +192,10 @@ class view{
 		}
 		
 		if (!empty($data)) {
-			$this->vars = array_merge_recursive($this->vars, $data);
+			self::$vars = array_merge(self::$vars, $data); // 使用静态属性
 		}
 		// 将变量导入到当前
-		extract($this->vars);
+		extract(self::$vars); // 使用静态属性
 		// 获取渲染后的内容
 		ob_start();
 		$this->_compile($tplFile, $cacheFile);
@@ -233,6 +234,9 @@ class view{
 			$content = $this->beforeCompile($content);
 		}
 		
+		// 处理include标签，将include的内容合并到主模板
+		$content = $this->parseIncludeTags($content);
+		
 		// 执行模板标签替换
 		$content = preg_replace(array_keys(self::$rules), self::$rules, $content);
 
@@ -242,20 +246,85 @@ class view{
 		}
 
 		// 确保缓存目录存在
-			if (!is_dir($tplCacheDir)) {
-				mkdir($tplCacheDir, 0777, true);
-			}
+		if (!is_dir($tplCacheDir)) {
+			mkdir($tplCacheDir, 0777, true);
+		}
 		
 		// 添加编译时间戳注释
 		$content = "<?php /* 模板编译于: " . date('Y-m-d H:i:s') . " */ ?>\n" . $content;
 		
-			file_put_contents($cacheFile, $content, LOCK_EX);
+		file_put_contents($cacheFile, $content, LOCK_EX);
+	}
+	
+	/**
+	 * 处理模板中的include标签，将被包含文件的内容合并到主模板中
+	 */
+	protected function parseIncludeTags($content) {
+		return preg_replace_callback(
+			'/{include\s+([^}]+)}/i',
+			function($matches) {
+				return $this->getIncludeContent($matches[1]);
+			},
+			$content
+		);
+	}
+	
+	/**
+	 * 获取被包含模板的内容（不执行，只返回内容）
+	 */
+	protected function getIncludeContent($name) {
+		if (empty($name)) {
+			return '';
+		}
+		
+		// 解析可能的参数
+		$params = [];
+		if (strpos($name, '?') !== false) {
+			list($name, $query) = explode('?', $name, 2);
+			parse_str($query, $params);
+		}
+		
+		// 检查是否已经包含文件扩展名
+		$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
+		if (!empty($fileExtension)) {
+			$tplFile = $this->tpl_template_dir . $name;
+		} else {
+			$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
+		}
+		
+		if (file_exists($tplFile)) {
+			// 读取包含文件内容
+			$content = file_get_contents($tplFile);
+			
+			// 递归处理嵌套的include标签
+			$content = $this->parseIncludeTags($content);
+			
+			// 如果有参数，将参数作为变量添加到内容中
+			if (!empty($params)) {
+				$paramCode = '';
+				foreach ($params as $key => $value) {
+					$paramCode .= '<?php $' . $key . ' = ' . var_export($value, true) . '; ?>';
+				}
+				$content = $paramCode . $content;
+			}
+			
+			return $content;
+		}
+		
+		return '<!-- 包含文件 ' . $name . ' 不存在 -->';
 	}
 
-	// 获取被包含模板的路径
+	// 获取被包含模板的内容（用于运行时）
 	public function getInclude($name = null) {
 		if (empty($name)) {
 			return '';
+		}
+		
+		// 解析可能的参数
+		$params = [];
+		if (strpos($name, '?') !== false) {
+			list($name, $query) = explode('?', $name, 2);
+			parse_str($query, $params);
 		}
 		
 		// 检查是否已经包含文件扩展名
@@ -271,21 +340,31 @@ class view{
 			$content = file_get_contents($tplFile);
 			
 			// 递归编译包含文件中的包含标签
-			$content = preg_replace_callback(
-				'/{include\s+([^}]+)}/i',
-				function($matches) {
-					return $this->getInclude($matches[1]);
-				},
-				$content
-			);
+			$content = $this->parseIncludeTags($content);
 			
 			// 编译其他模板标签
 			$content = preg_replace(array_keys(self::$rules), self::$rules, $content);
 			
-			return $content;
+			// 创建临时文件以执行
+			$tempFile = $this->tpl_compile_dir . md5($name . microtime(true)) . '.php';
+			file_put_contents($tempFile, $content);
+			
+			// 合并当前变量和传递的参数
+			$mergedVars = array_merge(self::$vars, $params);
+			
+			// 捕获输出
+			ob_start();
+			extract($mergedVars); // 提取变量到当前作用域
+			include $tempFile;
+			$output = ob_get_clean();
+			
+			// 清理临时文件
+			@unlink($tempFile);
+			
+			return $output;
 		}
 		
-		return '';
+		return '<!-- 包含文件 ' . $name . ' 不存在 -->';
 	}
 	
 	// 清除模板缓存
