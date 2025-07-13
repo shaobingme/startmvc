@@ -359,8 +359,8 @@ class DbCore implements DbInterface
         }
 
         $this->join = (is_null($this->join))
-            ? ' ' . $type . 'JOIN' . ' ' . $table . ' ON ' . $on
-            : $this->join . ' ' . $type . 'JOIN' . ' ' . $table . ' ON ' . $on;
+            ? ' ' . $type . ' JOIN' . ' ' . $table . ' ON ' . $on
+            : $this->join . ' ' . $type . ' JOIN' . ' ' . $table . ' ON ' . $on;
 
         return $this;
     }
