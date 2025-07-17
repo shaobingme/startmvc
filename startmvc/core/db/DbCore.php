@@ -145,7 +145,8 @@ class DbCore implements DbInterface
             }
         }
         
-        $this->connect(); // 在构造函数中初始化连接
+        // 延迟连接，只在需要时连接
+        // $this->connect(); 
     }
     
     /**
@@ -186,7 +187,7 @@ class DbCore implements DbInterface
             $this->connected = true;
             return $this->pdo;
         } catch (PDOException $e) {
-            throw new Exception('数据库连接失败：' . $e->getMessage());
+            throw new \Exception('数据库连接失败：' . $e->getMessage());
         }
     }
 
@@ -259,81 +260,111 @@ class DbCore implements DbInterface
     /**
      * 获取字段的最大值
      * 
-     * @param string      $field 字段名
-     * @param string|null $name 结果别名
-     *
-     * @return $this
+     * @param string $field 字段名
+     * @return mixed 字段的最大值
      */
-    public function max($field, $name = null)
+    public function max($field)
     {
-        $column = 'MAX(' . $field . ')' . (!is_null($name) ? ' AS ' . $name : '');
-        $this->optimizeSelect($column);
-
-        return $this;
+        return $this->executeAggregate('MAX', $field);
     }
 
     /**
      * 获取字段的最小值
      * 
-     * @param string      $field 字段名
-     * @param string|null $name 结果别名
-     *
-     * @return $this
+     * @param string $field 字段名
+     * @return mixed 字段的最小值
      */
-    public function min($field, $name = null)
+    public function min($field)
     {
-        $column = 'MIN(' . $field . ')' . (!is_null($name) ? ' AS ' . $name : '');
-        $this->optimizeSelect($column);
-
-        return $this;
+        return $this->executeAggregate('MIN', $field);
     }
 
     /**
      * 获取字段的总和
      * 
-     * @param string      $field 字段名
-     * @param string|null $name 结果别名
-     *
-     * @return $this
+     * @param string $field 字段名
+     * @return int|float|string|null 字段的总和或SQL字符串
      */
-    public function sum($field, $name = null)
+    public function sum($field)
     {
-        $column = 'SUM(' . $field . ')' . (!is_null($name) ? ' AS ' . $name : '');
-        $this->optimizeSelect($column);
-
-        return $this;
+        $result = $this->executeAggregate('SUM', $field);
+        
+        // 如果返回的是SQL字符串，直接返回
+        if (is_string($result)) {
+            return $result;
+        }
+        
+        return $result !== null ? (is_numeric($result) ? +$result : $result) : null;
     }
 
     /**
      * 获取记录数量
      * 
-     * @param string      $field 字段名
-     * @param string|null $name 结果别名
-     *
-     * @return $this
+     * @param string $field 字段名，默认为 '*'
+     * @return int|string 记录数量或SQL字符串
      */
-    public function count($field, $name = null)
+    public function count($field = '*')
     {
-        $column = 'COUNT(' . $field . ')' . (!is_null($name) ? ' AS ' . $name : '');
-        $this->optimizeSelect($column);
-
-        return $this;
+        $result = $this->executeAggregate('COUNT', $field);
+        
+        // 如果返回的是SQL字符串，直接返回
+        if (is_string($result)) {
+            return $result;
+        }
+        
+        return $result !== null ? (int)$result : 0;
     }
 
     /**
      * 获取字段的平均值
      * 
-     * @param string      $field 字段名
-     * @param string|null $name 结果别名
-     *
-     * @return $this
+     * @param string $field 字段名
+     * @return float|string|null 字段的平均值或SQL字符串
      */
-    public function avg($field, $name = null)
+    public function avg($field)
     {
-        $column = 'AVG(' . $field . ')' . (!is_null($name) ? ' AS ' . $name : '');
-        $this->optimizeSelect($column);
+        $result = $this->executeAggregate('AVG', $field);
+        
+        // 如果返回的是SQL字符串，直接返回
+        if (is_string($result)) {
+            return $result;
+        }
+        
+        return $result !== null ? (float)$result : null;
+    }
 
-        return $this;
+    /**
+     * 执行聚合查询的通用方法
+     * 
+     * @param string $function 聚合函数名（MAX、MIN、SUM、COUNT、AVG）
+     * @param string $field 字段名
+     * @return mixed 聚合结果
+     */
+    protected function executeAggregate($function, $field)
+    {
+        // 如果设置了返回SQL标志，构建查询并返回SQL
+        if ($this->_returnSql) {
+            $this->select($function . '(' . $field . ') as aggregate_value');
+            $query = $this->buildSelectQuery();
+            $this->_returnSql = false;
+            $this->reset();
+            return $query;
+        }
+        
+        // 构建聚合查询
+        $this->select($function . '(' . $field . ') as aggregate_value');
+        $query = $this->buildSelectQuery();
+        
+        // 执行查询
+        $result = $this->query($query, false);
+        $this->reset();
+        
+        // 返回聚合结果
+        if ($result && is_array($result) && isset($result['aggregate_value'])) {
+            return $result['aggregate_value'];
+        }
+        
+        return null;
     }
 
     /**
@@ -2107,124 +2138,4 @@ class DbCore implements DbInterface
     }
 }
 
-/**
- * 使用链式操作获取SQL示例：
- * 
- * // SELECT操作：获取查询SQL - 使用getSql()方法（推荐）
- * $sql = Db::table('users')->where('id', 1)->getSql()->get();
- * // 结果: SELECT * FROM users WHERE id = 1 LIMIT 1
- * 
- * // SELECT操作：使用参数方式获取SQL（向后兼容）
- * $sql = Db::table('users')->where('id', 1)->get(true);
- * // 结果: SELECT * FROM users WHERE id = 1 LIMIT 1
- * 
- * // 获取多条记录SQL
- * $sql = Db::table('users')->where('status', 1)->getSql()->getAll();
- * // 结果: SELECT * FROM users WHERE status = 1
- * 
- * // INSERT操作：获取插入SQL - 使用getSql()方法（推荐）
- * $data = ['name' => 'test', 'email' => 'test@example.com'];
- * $sql = Db::table('users')->getSql()->insert($data);
- * // 结果: INSERT INTO users (name, email) VALUES ('test', 'test@example.com')
- * 
- * // INSERT操作：使用参数方式获取SQL（向后兼容）
- * $data = ['name' => 'test', 'email' => 'test@example.com'];
- * $sql = Db::table('users')->insert($data, true);
- * // 结果: INSERT INTO users (name, email) VALUES ('test', 'test@example.com')
- * 
- * // UPDATE操作：获取更新SQL - 使用getSql()方法（推荐）
- * $data = ['name' => 'updated'];
- * $sql = Db::table('users')->where('id', 1)->getSql()->update($data);
- * // 结果: UPDATE users SET name='updated' WHERE id = 1
- * 
- * // UPDATE操作：使用参数方式获取SQL（向后兼容）
- * $data = ['name' => 'updated'];
- * $sql = Db::table('users')->where('id', 1)->update($data, true);
- * // 结果: UPDATE users SET name='updated' WHERE id = 1
- * 
- * // DELETE操作：获取删除SQL - 使用getSql()方法（推荐）
- * $sql = Db::table('users')->where('id', 1)->getSql()->delete();
- * // 结果: DELETE FROM users WHERE id = 1
- * 
- * // DELETE操作：使用参数方式获取SQL（向后兼容）
- * $sql = Db::table('users')->where('id', 1)->delete(true);
- * // 结果: DELETE FROM users WHERE id = 1
- * 
- * // 使用不同返回类型的示例：
- * // 返回关联数组（默认）
- * $result = Db::table('users')->where('id', 1)->get();
- * // $result = ['id' => 1, 'name' => 'test', 'email' => 'test@example.com']
- * 
- * // 返回对象
- * $result = Db::table('users')->where('id', 1)->get('object');
- * // $result->id = 1
- * // $result->name = 'test'
- * 
- * // 特殊更新操作示例：
- * // 将列值取反 (0变1, 1变0)
- * Db::table('users')->where('id', 1)->invert('is_active');
- * // 结果: UPDATE users SET is_active = !is_active WHERE id = 1
- * 
- * // 列值递增
- * Db::table('users')->where('id', 1)->inc('login_count');
- * // 结果: UPDATE users SET login_count = login_count + 1 WHERE id = 1
- * 
- * // 指定递增值的列值递增
- * Db::table('users')->where('id', 1)->inc('score', 5);
- * // 结果: UPDATE users SET score = score + 5 WHERE id = 1
- * 
- * // 列值递减
- * Db::table('users')->where('id', 1)->dec('remaining_attempts');
- * // 结果: UPDATE users SET remaining_attempts = remaining_attempts - 1 WHERE id = 1
- * 
- * // 指定递减值的列值递减
- * Db::table('products')->where('id', 1)->dec('stock', 10);
- * // 结果: UPDATE products SET stock = stock - 10 WHERE id = 1
- * 
- * // 子节点查询示例 (仅支持MySQL 5.7+):
- * // 获取用户及其关联订单
- * $user = Db::table('users AS u')
- *     ->select('u.*')
- *     ->leftJoin('orders AS o', 'o.user_id', '=', 'u.id')
- *     ->joinNode('orders', [
- *         'id' => 'o.id',
- *         'amount' => 'o.amount',
- *         'created_at' => 'o.created_at'
- *     ])
- *     ->where('u.id', 1)
- *     ->group('u.id')  // 必须添加GROUP BY分组
- *     ->get();
- * // 结果: 
- * // [
- * //     'id' => 1,
- * //     'username' => 'test',
- * //     'email' => 'test@example.com',
- * //     'orders' => [
- * //         [
- * //             'id' => 101,
- * //             'amount' => 199.99,
- * //             'created_at' => '2023-01-01 10:00:00'
- * //         ],
- * //         [
- * //             'id' => 102,
- * //             'amount' => 299.99,
- * //             'created_at' => '2023-01-05 14:30:00'
- * //         ]
- * //     ]
- * // ]
- * 
- * // 使用first()方法获取子节点数据
- * $user = Db::table('users AS u')
- *     ->select('u.*')
- *     ->leftJoin('orders AS o', 'o.user_id', '=', 'u.id')
- *     ->joinNode('orders', [
- *         'id' => 'o.id',
- *         'amount' => 'o.amount'
- *     ])
- *     ->where('u.id', 1)
- *     ->group('u.id')
- *     ->first();
- * 
- * // 注意: joinNode 方法依赖 MySQL 5.7+ 的 JSON 函数，在其他数据库中不可用。
- * // 如果需要跨数据库支持，请使用原生SQL或多次查询手动构建嵌套数据。
- */
+
