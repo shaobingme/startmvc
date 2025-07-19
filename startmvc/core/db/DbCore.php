@@ -487,55 +487,288 @@ class DbCore implements DbInterface
     }
 
     /**
-     * WHERE条件查询
+     * WHERE条件查询 - 支持多种灵活写法
+     * 
+     * 支持的用法：
+     * where('id', 1)                           // id = 1
+     * where('id', '>', 1)                      // id > 1
+     * where('id', 'in', [1,2,3])              // id IN (1,2,3)
+     * where('name', 'like', '%admin%')         // name LIKE '%admin%'
+     * where('id', 'between', [1,10])          // id BETWEEN 1 AND 10
+     * where('user|email', 'admin')             // user='admin' OR email='admin'
+     * where('id&status', 1)                    // id=1 AND status=1
+     * where('tag_ids', 'find_in_set', 6)      // FIND_IN_SET(6, tag_ids)
+     * where('id=? AND status=?', [1, 1])      // 参数绑定
+     * where(['id' => 1, 'status' => 1])       // 数组条件
+     * where([['id', '>', 1], ['name', 'like', '%admin%']]) // 复杂数组
      * 
      * @param array|string $where 条件
-     * @param string       $operator 操作符
-     * @param string       $val 值
-     * @param string       $type 类型
-     * @param string       $andOr 连接词（AND/OR）
+     * @param string|array $operator 操作符或值
+     * @param mixed $val 值
+     * @param string $logic 逻辑连接符 AND/OR
      *
      * @return $this
      */
-    public function where($where, $operator = null, $val = null, $type = '', $andOr = 'AND')
+    public function where($where, $operator = null, $val = null, $logic = 'AND')
     {
-        if (is_array($where) && !empty($where)) {
-            $_where = [];
-            foreach ($where as $column => $data) {
-                $_where[] = $type . $column . '=' . $this->escape($data);
-            }
-            $where = implode(' ' . $andOr . ' ', $_where);
-        } else {
-            if (is_null($where) || empty($where)) {
-                return $this;
-            }
-
-            if (is_array($operator)) {
-                $params = explode('?', $where);
-                $_where = '';
-                foreach ($params as $key => $value) {
-                    if (!empty($value)) {
-                        $_where .= $type . $value . (isset($operator[$key]) ? $this->escape($operator[$key]) : '');
-                    }
-                }
-                $where = $_where;
-            } elseif (!in_array($operator, $this->operators) || $operator == false) {
-                $where = $type . $where . ' = ' . $this->escape($operator);
-            } else {
-                $where = $type . $where . ' ' . $operator . ' ' . $this->escape($val);
-            }
+        if (is_null($where) || (is_string($where) && empty($where))) {
+            return $this;
         }
 
+        $condition = $this->parseWhereCondition($where, $operator, $val, $logic);
+        
         if ($this->grouped) {
-            $where = '(' . $where;
+            $condition = '(' . $condition;
             $this->grouped = false;
         }
 
-        $this->where = is_null($this->where)
-            ? $where
-            : $this->where . ' ' . $andOr . ' ' . $where;
+        $this->where = is_null($this->where) 
+            ? $condition 
+            : $this->where . ' ' . $logic . ' ' . $condition;
 
         return $this;
+    }
+
+    /**
+     * 解析WHERE条件
+     * 
+     * @param mixed $where 条件
+     * @param mixed $operator 操作符
+     * @param mixed $val 值
+     * @param string $logic 逻辑连接符
+     * @return string 解析后的条件
+     */
+    protected function parseWhereCondition($where, $operator, $val, $logic)
+    {
+        // 1. 数组条件处理
+        if (is_array($where)) {
+            return $this->parseArrayWhere($where, $logic);
+        }
+
+        // 2. 参数绑定 where('id=? AND status=?', [1, 1])
+        if (is_array($operator)) {
+            return $this->parseBindWhere($where, $operator);
+        }
+
+        // 3. 特殊字段语法 user|email 或 id&status
+        if (strpos($where, '|') !== false || strpos($where, '&') !== false) {
+            return $this->parseSpecialFieldWhere($where, $operator);
+        }
+
+        // 4. 标准条件处理
+        return $this->parseStandardWhere($where, $operator, $val);
+    }
+
+    /**
+     * 解析数组WHERE条件
+     * 
+     * @param array $conditions 条件数组
+     * @param string $logic 逻辑连接符
+     * @return string
+     */
+    protected function parseArrayWhere($conditions, $logic)
+    {
+        $whereParts = [];
+        
+        foreach ($conditions as $key => $condition) {
+            if (is_numeric($key)) {
+                // 索引数组: [['id', '>', 1], ['name', 'like', '%admin%']]
+                if (is_array($condition)) {
+                    $field = $condition[0] ?? '';
+                    $op = $condition[1] ?? '=';
+                    $value = $condition[2] ?? '';
+                    $subLogic = $condition[3] ?? 'AND';
+                    
+                    $whereParts[] = $this->parseStandardWhere($field, $op, $value);
+                }
+            } else {
+                // 关联数组: ['id' => 1, 'status' => 1]
+                $whereParts[] = $key . ' = ' . $this->escape($condition);
+            }
+        }
+        
+        return implode(' ' . $logic . ' ', $whereParts);
+    }
+
+    /**
+     * 解析参数绑定WHERE条件
+     * 
+     * @param string $where SQL模板
+     * @param array $params 参数数组
+     * @return string
+     */
+    protected function parseBindWhere($where, $params)
+    {
+        $parts = explode('?', $where);
+        $result = '';
+        
+        foreach ($parts as $key => $part) {
+            $result .= $part;
+            if (isset($params[$key])) {
+                $result .= $this->escape($params[$key]);
+            }
+        }
+        
+        return $result;
+    }
+
+    /**
+     * 解析特殊字段WHERE条件 (user|email 或 id&status)
+     * 
+     * @param string $where 字段表达式
+     * @param mixed $operator 值
+     * @return string
+     */
+    protected function parseSpecialFieldWhere($where, $operator)
+    {
+        if (strpos($where, '|') !== false) {
+            // OR条件: user|email
+            $fields = explode('|', $where);
+            $conditions = [];
+            foreach ($fields as $field) {
+                $conditions[] = trim($field) . ' = ' . $this->escape($operator);
+            }
+            return '(' . implode(' OR ', $conditions) . ')';
+        }
+        
+        if (strpos($where, '&') !== false) {
+            // AND条件: id&status
+            $fields = explode('&', $where);
+            $conditions = [];
+            foreach ($fields as $field) {
+                $conditions[] = trim($field) . ' = ' . $this->escape($operator);
+            }
+            return '(' . implode(' AND ', $conditions) . ')';
+        }
+        
+        return $where . ' = ' . $this->escape($operator);
+    }
+
+    /**
+     * 解析标准WHERE条件
+     * 
+     * @param string $field 字段名
+     * @param string $operator 操作符
+     * @param mixed $val 值
+     * @return string
+     */
+    protected function parseStandardWhere($field, $operator, $val)
+    {
+        // 检查是否是原生SQL条件 (如 'id=10', 'age>18', 'status=1 AND type=2')
+        if (is_null($operator) && is_null($val) && $this->isRawSqlCondition($field)) {
+            return $field; // 直接返回原生SQL条件
+        }
+        
+        // 如果只有两个参数，第二个参数是值
+        if (is_null($val)) {
+            $val = $operator;
+            $operator = '=';
+        }
+
+        $operator = strtolower($operator);
+
+        switch ($operator) {
+            case 'in':
+            case 'not in':
+                return $this->buildInCondition($field, $val, $operator);
+                
+            case 'between':
+            case 'not between':
+                return $this->buildBetweenCondition($field, $val, $operator);
+                
+            case 'like':
+            case 'not like':
+                return $field . ' ' . strtoupper($operator) . ' ' . $this->escape($val);
+                
+            case 'find_in_set':
+                return 'FIND_IN_SET(' . $this->escape($val) . ', ' . $field . ')';
+                
+            case 'is null':
+            case 'isnull':
+                return $field . ' IS NULL';
+                
+            case 'is not null':
+            case 'isnotnull':
+                return $field . ' IS NOT NULL';
+                
+            default:
+                // 标准操作符: =, >, <, >=, <=, <>, !=
+                if (in_array($operator, ['=', '>', '<', '>=', '<=', '<>', '!='])) {
+                    return $field . ' ' . $operator . ' ' . $this->escape($val);
+                }
+                // 默认等于
+                return $field . ' = ' . $this->escape($operator);
+        }
+    }
+
+    /**
+     * 构建IN条件
+     * 
+     * @param string $field 字段名
+     * @param mixed $val 值
+     * @param string $operator 操作符
+     * @return string
+     */
+    protected function buildInCondition($field, $val, $operator)
+    {
+        if (is_string($val)) {
+            $val = explode(',', $val);
+        }
+        
+        if (!is_array($val)) {
+            $val = [$val];
+        }
+        
+        $values = array_map([$this, 'escape'], $val);
+        return $field . ' ' . strtoupper($operator) . ' (' . implode(', ', $values) . ')';
+    }
+
+    /**
+     * 构建BETWEEN条件
+     * 
+     * @param string $field 字段名
+     * @param mixed $val 值
+     * @param string $operator 操作符
+     * @return string
+     */
+    protected function buildBetweenCondition($field, $val, $operator)
+    {
+        if (is_string($val)) {
+            $val = explode(',', $val);
+        }
+        
+        if (!is_array($val) || count($val) < 2) {
+            throw new \InvalidArgumentException('BETWEEN条件需要两个值');
+        }
+        
+        return $field . ' ' . strtoupper($operator) . ' ' . 
+               $this->escape($val[0]) . ' AND ' . $this->escape($val[1]);
+    }
+
+    /**
+     * 检查是否是原生SQL条件
+     * 
+     * @param string $condition 条件字符串
+     * @return bool
+     */
+    protected function isRawSqlCondition($condition)
+    {
+        // 检查是否包含SQL操作符
+        $sqlOperators = ['=', '>', '<', '>=', '<=', '<>', '!=', 'LIKE', 'IN', 'BETWEEN', 'IS NULL', 'IS NOT NULL'];
+        $condition = strtoupper($condition);
+        
+        foreach ($sqlOperators as $operator) {
+            if (strpos($condition, $operator) !== false) {
+                return true;
+            }
+        }
+        
+        // 检查是否包含AND/OR逻辑操作符
+        if (strpos($condition, ' AND ') !== false || strpos($condition, ' OR ') !== false) {
+            return true;
+        }
+        
+        return false;
     }
 
     /**
@@ -1531,6 +1764,11 @@ class DbCore implements DbInterface
      */
     public function query($query, $all = true, $type = null, $argument = null)
     {
+        // 确保数据库连接已建立
+        if ($this->pdo === null) {
+            $this->connect();
+        }
+        
         $this->reset();
         
         // 记录SQL开始执行时间
@@ -1637,9 +1875,25 @@ class DbCore implements DbInterface
      */
     public function escape($data)
     {
-        return $data === null ? 'NULL' : (
-            is_int($data) || is_float($data) ? $data : $this->pdo->quote($data)
-        );
+        if ($data === null) {
+            return 'NULL';
+        }
+        
+        if (is_int($data) || is_float($data)) {
+            return $data;
+        }
+        
+        if (is_bool($data)) {
+            return $data ? 1 : 0;
+        }
+        
+        // 如果PDO连接存在，使用PDO的quote方法
+        if ($this->pdo !== null) {
+            return $this->pdo->quote($data);
+        }
+        
+        // 如果没有PDO连接，使用简单的转义（主要用于SQL生成）
+        return "'" . addslashes($data) . "'";
     }
 
     /**
