@@ -1187,6 +1187,18 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 设置查询结果的分组（groupBy方法的别名，保持API一致性）
+     * 
+     * @param string|array $groupBy 分组字段
+     *
+     * @return $this
+     */
+    public function groupBy($groupBy)
+    {
+        return $this->group($groupBy);
+    }
+
+    /**
      * 设置HAVING条件
      * 
      * @param string            $field 字段名

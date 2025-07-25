@@ -395,9 +395,9 @@ class view{
 					@rmdir($path);
 				} else {
 					@unlink($path);
-		}
+				}
 			}
-	}
+		}
 		closedir($handle);
 	}
 }
