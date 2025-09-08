@@ -10,6 +10,8 @@
  
 namespace startmvc\core;
 
+use startmvc\core\Router;
+
 class App
 {
 	public $conf;
@@ -190,28 +192,20 @@ class App
 				}
 			}
 			
-			// 如果URI为空，使用默认路由
-			if (empty($uri)) {
+			// 使用Router类的parse方法解析URI
+			$parseResult = Router::parse($uri);
+			
+			if ($parseResult && count($parseResult) >= 3) {
+				$module = $parseResult[0];
+				$controller = $parseResult[1];
+				$action = $parseResult[2];
+				$params = isset($parseResult[3]) ? $parseResult[3] : [];
+			} else {
+				// 如果解析失败，使用默认值
 				$module = Config::get('common.default_module', 'home');
 				$controller = Config::get('common.default_controller', 'Index');
 				$action = Config::get('common.default_action', 'index');
 				$params = [];
-			} else {
-				// 解析URI
-				$parts = explode('/', $uri);
-				$module = isset($parts[0]) ? $parts[0] : Config::get('common.default_module', 'home');
-				$controller = isset($parts[1]) ? ucfirst($parts[1]) : Config::get('common.default_controller', 'Index');
-				$action = isset($parts[2]) ? $parts[2] : Config::get('common.default_action', 'index');
-				$params = array_slice($parts, 3);
-			}
-			
-			// 校验模块是否存在
-			if (!is_dir(APP_PATH . $module)) {
-				// 模块不存在，使用默认模块
-				$params = array_merge([$controller, $action], $params);
-				$module = Config::get('common.default_module', 'home');
-				$controller = Config::get('common.default_controller', 'Index');
-				$action = Config::get('common.default_action', 'index');
 			}
 			
 			// 使用原有的startApp方法

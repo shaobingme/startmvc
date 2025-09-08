@@ -418,6 +418,25 @@ class Router
             }
         }
         
+        // 如果没有匹配到路由，尝试使用默认解析方式
+        $parseResult = self::parse($uri);
+        if ($parseResult && count($parseResult) >= 3) {
+            list($module, $controller, $action, $params) = $parseResult;
+            
+            // 构建控制器类名
+            $controllerClass = 'app\\' . $module . '\\controller\\' . ucfirst($controller) . 'Controller';
+            
+            // 检查控制器类是否存在
+            if (class_exists($controllerClass)) {
+                $controllerInstance = new $controllerClass();
+                
+                // 检查方法是否存在
+                if (method_exists($controllerInstance, $action)) {
+                    return call_user_func_array([$controllerInstance, $action], $params ?: []);
+                }
+            }
+        }
+        
         throw new \Exception("Route not found: $uri [$method]", 404);
     }
     
@@ -470,9 +489,14 @@ class Router
         // 移除前后的斜杠
         $uri = trim($uri, '/');
         
+        // 获取默认模块配置
+        $defaultModule = config('default_module') ?: 'home';
+        $defaultController = config('default_controller') ?: 'Index';
+        $defaultAction = config('default_action') ?: 'index';
+        
         // 如果URI为空，设置为首页
         if (empty($uri)) {
-            return ['home', 'index', 'index'];
+            return [$defaultModule, $defaultController, $defaultAction, []];
         }
         
         // 加载路由配置
@@ -495,9 +519,9 @@ class Router
                         
                         $parts = explode('/', $target);
                         return [
-                            isset($parts[0]) ? $parts[0] : 'home',
-                            isset($parts[1]) ? $parts[1] : 'index',
-                            isset($parts[2]) ? $parts[2] : 'index',
+                            isset($parts[0]) ? strtolower($parts[0]) : $defaultModule,
+                            isset($parts[1]) ? ucfirst(strtolower($parts[1])) : $defaultController,
+                            isset($parts[2]) ? strtolower($parts[2]) : $defaultAction,
                             array_slice($parts, 3)
                         ];
                     }
@@ -520,9 +544,9 @@ class Router
                         
                         $parts = explode('/', $target);
                         return [
-                            isset($parts[0]) ? $parts[0] : 'home',
-                            isset($parts[1]) ? $parts[1] : 'index',
-                            isset($parts[2]) ? $parts[2] : 'index',
+                            isset($parts[0]) ? strtolower($parts[0]) : $defaultModule,
+                            isset($parts[1]) ? ucfirst(strtolower($parts[1])) : $defaultController,
+                            isset($parts[2]) ? strtolower($parts[2]) : $defaultAction,
                             array_slice($parts, 3)
                         ];
                     }
@@ -532,11 +556,46 @@ class Router
         
         // 如果没有匹配的路由规则，使用默认的解析方式
         $parts = explode('/', $uri);
+        
+        // 智能解析：尝试判断是否省略了默认模块
+        if (count($parts) >= 1) {
+            // 检查第一个部分是否是已存在的模块
+            $possibleModule = strtolower($parts[0]); // 模块名转小写进行检查
+            
+            // 使用绝对路径检查模块目录
+            if (defined('APP_PATH')) {
+                $modulePath = APP_PATH . $possibleModule;
+            } else {
+                // 如果 APP_PATH 未定义，使用相对路径
+                $modulePath = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . $possibleModule;
+            }
+            
+
+            
+            // 如果模块目录存在，按正常方式解析
+            if (is_dir($modulePath)) {
+                return [
+                    $possibleModule, // 使用小写的模块名
+                    isset($parts[1]) ? ucfirst(strtolower($parts[1])) : $defaultController, // 控制器名首字母大写
+                    isset($parts[2]) ? strtolower($parts[2]) : $defaultAction, // 方法名小写
+                    array_slice($parts, 3)
+                ];
+            } else {
+                // 如果模块目录不存在，假设省略了默认模块，将第一个部分作为控制器
+                return [
+                    $defaultModule,
+                    isset($parts[0]) ? ucfirst(strtolower($parts[0])) : $defaultController, // 控制器名首字母大写
+                    isset($parts[1]) ? strtolower($parts[1]) : $defaultAction, // 方法名小写
+                    array_slice($parts, 2)
+                ];
+            }
+        }
+        
         return [
-            isset($parts[0]) ? $parts[0] : 'home',
-            isset($parts[1]) ? $parts[1] : 'index',
-            isset($parts[2]) ? $parts[2] : 'index',
-            array_slice($parts, 3)
+            $defaultModule,
+            $defaultController,
+            $defaultAction,
+            []
         ];
     }
 } 

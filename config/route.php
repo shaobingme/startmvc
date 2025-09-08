@@ -28,6 +28,15 @@ return
 */
 
 return [
-
-	
+    // 隐藏默认模块home的路由规则示例
+    // 注意：这些规则是可选的，新的智能解析已经可以自动处理默认模块省略
+    
+    // 示例：将 /article/detail/123 映射到 home/article/detail/123
+    // ['/^([^\/]+)\/([^\/]+)\/(.+)$/', 'home/$1/$2/$3'],
+    
+    // 示例：将 /article/123 映射到 home/article/index/123  
+    // ['/^([^\/]+)\/(\d+)$/', 'home/$1/index/$2'],
+    
+    // 示例：将 /article 映射到 home/article/index
+    // ['/^([^\/]+)$/', 'home/$1/index'],
 ];
