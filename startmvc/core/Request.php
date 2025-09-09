@@ -13,33 +13,33 @@ namespace startmvc\core;
 class Request
 {
     /**
-     * 获取所有输入
+     * 获取所有输入（静态方法）
      * @return array
      */
-    public function all()
+    public static function all()
     {
         return array_merge($_GET, $_POST);
     }
     
     /**
-     * 获取输入值
+     * 获取输入值（静态方法）
      * @param string $key 键名
      * @param mixed $default 默认值
      * @return mixed
      */
-    public function input($key = null, $default = null)
+    public static function input($key = null, $default = null)
     {
-        $data = $this->all();
+        $data = self::all();
         return $key ? ($data[$key] ?? $default) : $data;
     }
     
     /**
-     * 获取请求头
+     * 获取请求头（静态方法）
      * @param string $key 键名
      * @param mixed $default 默认值
      * @return mixed
      */
-    public function header($key = null, $default = null)
+    public static function header($key = null, $default = null)
     {
         $headers = function_exists('getallheaders') ? getallheaders() : self::headers();
         if ($key) {
@@ -55,12 +55,12 @@ class Request
     }
     
     /**
-     * 判断是否为AJAX请求
+     * 判断是否为AJAX请求（静态方法）
      * @return bool
      */
-    public function isAjax()
+    public static function isAjax()
     {
-        return $this->header('X-Requested-With') === 'XMLHttpRequest';
+        return self::header('X-Requested-With') === 'XMLHttpRequest';
     }
 
     /**

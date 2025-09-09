@@ -28,6 +28,9 @@ class view{
 
 	private static $rules = [
 		// {$var}, {$array['key']}
+		// 包含运算符的表达式 {$var+1}, {$array['key']-1} 等
+		'/{\$([^\}]*[\+\-\*\/\%][^\}]*)}/i' => '<?php echo $${1}; ?>',
+		
 		'/{\$([^\}|\.]{1,})}/i' => '<?php echo isset($${1}) ? $${1} : \'\'; ?>',
 
 		// array: {$array.key}
