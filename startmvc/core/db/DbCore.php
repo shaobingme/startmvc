@@ -1269,6 +1269,34 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 获取多条记录
+     * 
+     * @param bool|string $returnSql 是否仅返回SQL或返回类型
+     * @param string $argument 参数（当$returnSql指定为类名时使用）
+     *
+     * @return mixed 返回多条记录
+     */
+    public function get($returnSql = null, $argument = null)
+    {
+        $query = $this->buildSelectQuery();
+        
+        // 存储查询，用于getSql方法
+        $this->_lastQuery = $query;
+        $this->_queryType = 'select';
+        
+        if ($returnSql === true || $this->_returnSql) {
+            $this->_returnSql = false;
+            $this->reset();
+            return $query;
+        }
+        
+        $result = $this->query($query, true, $returnSql, $argument);
+        
+        $this->reset();
+        return $result;
+    }
+
+    /**
      * 获取单条记录
      * 
      * @param bool|string $returnSql 是否仅返回SQL或返回类型
@@ -1276,7 +1304,7 @@ class DbCore implements DbInterface
      *
      * @return mixed 返回单条记录
      */
-    public function get($returnSql = null, $argument = null)
+    public function first($returnSql = null, $argument = null)
     {
         $this->limit(1);
         $query = $this->buildSelectQuery();
@@ -1298,7 +1326,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取多条记录
+     * 获取多条记录（向后兼容的别名方法）
      * 
      * @param bool|string $returnSql 是否仅返回SQL或返回类型
      * @param string $argument 参数（当$returnSql指定为类名时使用）
@@ -1307,22 +1335,7 @@ class DbCore implements DbInterface
      */
     public function getAll($returnSql = null, $argument = null)
     {
-        $query = $this->buildSelectQuery();
-        
-        // 存储查询，用于getSql方法
-        $this->_lastQuery = $query;
-        $this->_queryType = 'select';
-        
-        if ($returnSql === true || $this->_returnSql) {
-            $this->_returnSql = false;
-            $this->reset();
-            return $query;
-        }
-        
-        $result = $this->query($query, true, $returnSql, $argument);
-        
-        $this->reset();
-        return $result;
+        return $this->get($returnSql, $argument);
     }
 
     /**
@@ -2063,16 +2076,7 @@ class DbCore implements DbInterface
         return self::$sqlLogs;
     }
 
-    /**
-     * 获取第一条记录
-     * @return array|object|null
-     */
-    public function first()
-    {
-        $this->limit(1);
-        $result = $this->get();
-        return $result ? $result[0] : null;
-    }
+
 
     /**
      * 获取单个字段的值
@@ -2082,10 +2086,9 @@ class DbCore implements DbInterface
     public function value($column)
     {
         $this->select($column);
-        $this->limit(1);
-        $result = $this->get();
-        if ($result && isset($result[0])) {
-            return $result[0]->$column ?? null;
+        $result = $this->first();
+        if ($result && is_array($result) && isset($result[$column])) {
+            return $result[$column];
         }
         return null;
     }
