@@ -181,18 +181,7 @@ class App
 				$uri = trim($uri, '/');
 			}
 			
-			// 获取URL后缀配置
-			$urlSuffix = Config::get('common.url_suffix', '');
-			
-			// 如果配置了URL后缀且URI以该后缀结尾，则移除后缀
-			if (!empty($urlSuffix) && strlen($uri) > strlen($urlSuffix)) {
-				$suffixPos = strrpos($uri, $urlSuffix);
-				if ($suffixPos !== false && $suffixPos == strlen($uri) - strlen($urlSuffix)) {
-					$uri = substr($uri, 0, $suffixPos);
-				}
-			}
-			
-			// 使用Router类的parse方法解析URI
+			// 使用Router类的parse方法解析URI（Router会自动处理URL后缀）
 			$parseResult = Router::parse($uri);
 			
 			if ($parseResult && count($parseResult) >= 3) {
