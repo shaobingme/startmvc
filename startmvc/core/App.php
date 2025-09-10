@@ -58,17 +58,17 @@ class App
 			// 输出响应内容
 			if (is_string($response)) {
 				echo $response;
+				// 对于字符串响应，在末尾添加 trace 信息
+				if (config('trace')) {
+					echo "\n<!-- Trace Info Start -->\n";
+					include __DIR__ . '/tpl/trace.php';
+					echo "\n<!-- Trace Info End -->\n";
+				}
 			} elseif (is_array($response)) {
 				header('Content-Type: application/json');
 				echo json_encode($response);
 			}
-			
-			// 在页面最后输出追踪信息
-			if (config('trace')) {
-				echo "\n<!-- Trace Info Start -->\n";
-				include __DIR__ . '/tpl/trace.php';
-				echo "\n<!-- Trace Info End -->\n";
-			}
+			// 注意：如果 $response 为 null（控制器直接输出了内容），则不需要额外处理
 			
 		} catch (\Exception $e) {
 			throw $e;

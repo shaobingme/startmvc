@@ -61,8 +61,15 @@ abstract class Controller
 	 
 	protected function display($tplfile='',$data=[])
 	{
-		// 直接调用视图的display方法，不返回内容
+		// 直接调用视图的display方法，输出内容
 		$this->view->display($tplfile,$data);
+		
+		// 如果开启了 trace，在页面末尾添加 trace 信息
+		if (config('trace')) {
+			echo "\n<!-- Trace Info Start -->\n";
+			include __DIR__ . '/../core/tpl/trace.php';
+			echo "\n<!-- Trace Info End -->\n";
+		}
 	}
 	
 	/**

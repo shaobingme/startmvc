@@ -101,7 +101,12 @@ class Config
 			return $config;
 		}
 		
-		// 简单键名直接获取
+		// 简单键名：先从 common 配置组中查找，再从其他配置组查找
+		if (isset(self::$config['common'][$key])) {
+			return self::$config['common'][$key];
+		}
+		
+		// 如果 common 中没有，再从其他配置组中查找
 		return self::$config[$key] ?? $default;
 	}
 
