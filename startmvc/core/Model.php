@@ -218,14 +218,8 @@ abstract class Model
 			}
 		}
 		
-		// 限制只返回一条记录
-		$query->limit(1);
-		
-		// 执行查询
-		$result = $query->get();
-		
-		// 返回单条记录或null
-		return !empty($result) ? $result[0] : null;
+		// 执行查询并返回单条记录
+		return $query->first();
 	}
 	
 	
@@ -313,7 +307,15 @@ abstract class Model
 	public function paginate($pageSize = 10, $currentPage = 1, $where = [], $order = '')
 	{
 		// 查询总记录数
-		$total = $this->count($where);
+		$countQuery = Db::table($this->table);
+		if (!empty($where)) {
+			if (is_array($where)) {
+				$countQuery->where($where);
+			} elseif (is_string($where)) {
+				$countQuery->where($where);
+			}
+		}
+		$total = $countQuery->count();
 		
 		// 计算总页数
 		$totalPages = ceil($total / $pageSize);
