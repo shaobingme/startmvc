@@ -66,9 +66,7 @@ abstract class Controller
 		
 		// 如果开启了 trace，在页面末尾添加 trace 信息
 		if (config('trace')) {
-			echo "\n<!-- Trace Info Start -->\n";
-			include __DIR__ . '/../core/tpl/trace.php';
-			echo "\n<!-- Trace Info End -->\n";
+			\startmvc\core\App::outputTrace();
 		}
 	}
 	

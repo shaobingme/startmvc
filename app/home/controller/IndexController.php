@@ -9,11 +9,9 @@ class IndexController extends BaseController{
 	
 	public function indexAction()
 	{
+		
 		$data['title'] = '超轻量php框架-欢迎使用Startmvc';
 		$data['content'] = 'Hello StartMVC!';
-
-		//$result=Db::table('article')->where('id','=',10)->get();
-		//dump($result);
 
 		$this->assign($data);
 		$this->display();

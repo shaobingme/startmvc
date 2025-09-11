@@ -1292,6 +1292,7 @@ class DbCore implements DbInterface
         
         $result = $this->query($query, true, $returnSql, $argument);
         
+        // 只重置查询构建器状态，保留查询结果状态（numRows等）
         $this->reset();
         return $result;
     }
@@ -1321,6 +1322,7 @@ class DbCore implements DbInterface
         
         $result = $this->query($query, false, $returnSql, $argument);
         
+        // 只重置查询构建器状态，保留查询结果状态（numRows等）
         $this->reset();
         return $result;
     }
@@ -1794,7 +1796,11 @@ class DbCore implements DbInterface
             $this->connect();
         }
         
-        $this->reset();
+        // 初始化查询相关的属性
+        $this->query = null;
+        $this->error = null;
+        $this->result = [];
+        $this->numRows = 0;
         
         // 记录SQL开始执行时间
         $startTime = microtime(true);
@@ -1836,22 +1842,32 @@ class DbCore implements DbInterface
         if (!$cache && $str) {
             $sql = $this->pdo->query($this->query);
             if ($sql) {
-                $this->numRows = $sql->rowCount();
-                if ($this->numRows > 0) {
-                    if ($type === PDO::FETCH_CLASS) {
-                        $sql->setFetchMode($type, $argument);
+                if ($type === PDO::FETCH_CLASS) {
+                    $sql->setFetchMode($type, $argument);
+                } else {
+                    $sql->setFetchMode($type);
+                }
+                $this->result = $all ? $sql->fetchAll() : $sql->fetch();
+                
+                // 正确设置numRows - 对于SELECT查询，使用结果数量
+                if ($this->result !== false) {
+                    if ($all && is_array($this->result)) {
+                        $this->numRows = count($this->result);
+                    } else if (!$all && $this->result !== false) {
+                        $this->numRows = 1;
                     } else {
-                        $sql->setFetchMode($type);
+                        $this->numRows = 0;
                     }
-                    $this->result = $all ? $sql->fetchAll() : $sql->fetch();
-                    
-                    // 保存当前的joinNodes，因为reset会清空它
-                    $currentJoinNodes = $this->joinNodes;
-                    
-                    // 处理子节点查询结果
-                    if (!empty($currentJoinNodes) && is_array($this->result)) {
-                        $this->result = $this->nodeParser($this->result);
-                    }
+                } else {
+                    $this->numRows = 0;
+                }
+                
+                // 保存当前的joinNodes，因为reset会清空它
+                $currentJoinNodes = $this->joinNodes;
+                
+                // 处理子节点查询结果
+                if (!empty($currentJoinNodes) && is_array($this->result)) {
+                    $this->result = $this->nodeParser($this->result);
                 }
 
                 if (!is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
@@ -1860,6 +1876,7 @@ class DbCore implements DbInterface
                 $this->cache = null;
             } else {
                 $this->cache = null;
+                $this->numRows = 0;
                 $this->error = $this->pdo->errorInfo()[2];
                 $this->error();
             }
@@ -1868,8 +1885,12 @@ class DbCore implements DbInterface
             $this->result = $this->pdo->exec($this->query);
 
             if ($this->result === false) {
+                $this->numRows = 0;
                 $this->error = $this->pdo->errorInfo()[2];
                 $this->error();
+            } else {
+                // 对于非SELECT查询（INSERT、UPDATE、DELETE），exec()返回影响的行数
+                $this->numRows = $this->result;
             }
         } else {
             $this->cache = null;
@@ -2009,12 +2030,23 @@ class DbCore implements DbInterface
         $this->having = null;
         $this->join = null;
         $this->grouped = false;
+        $this->joinNodes = []; // 重置子节点查询配置
+        // 注意：不重置 numRows, insertId, query, error, result，这些是查询结果状态
+    }
+
+    /**
+     * 重置所有状态（包括查询结果）
+     *
+     * @return void
+     */
+    protected function resetAll()
+    {
+        $this->reset();
         $this->numRows = 0;
         $this->insertId = null;
         $this->query = null;
         $this->error = null;
         $this->result = [];
-        $this->joinNodes = []; // 重置子节点查询配置
         $this->transactionCount = 0;
     }
 
@@ -2061,7 +2093,7 @@ class DbCore implements DbInterface
         self::$sqlLogs[] = [
             'sql' => $sql,
             'params' => $params,
-            'time' => number_format($executionTime, 2) . 'ms',
+            'time' => number_format($executionTime * 1000, 2) . 'ms', // 转换为毫秒
             'timestamp' => microtime(true)
         ];
     }

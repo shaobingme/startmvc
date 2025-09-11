@@ -28,6 +28,14 @@ class App
 		$beginTime = microtime(true);
 		$beginMem = memory_get_usage();
 		
+		// 初始化 trace 数据
+		self::$trace = [
+			'beginTime' => $beginTime,
+			'beginMem' => $beginMem,
+			'uri' => $_SERVER['REQUEST_URI'],
+			'request_method' => $_SERVER['REQUEST_METHOD']
+		];
+		
 		try {
 			Exception::init(); 
 			$this->loadFunction();
@@ -40,39 +48,43 @@ class App
 				return $this->handleRequest();
 			});
 			
-			// 记录结束时间和内存
-			$endTime = microtime(true);
-			$endMem = memory_get_usage();
-			
-			// 计算运行时间和内存使用
-			self::$trace = [
-				'beginTime' => $beginTime,
-				'endTime' => $endTime,
-				'runtime' => number_format(($endTime - $beginTime) * 1000, 2) . 'ms',
-				'memory' => number_format(($endMem - $beginMem) / 1024, 2) . 'KB',
-				'files' => get_included_files(),  // 添加加载的文件列表
-				'uri' => $_SERVER['REQUEST_URI'],
-				'request_method' => $_SERVER['REQUEST_METHOD']
-			];
-			
 			// 输出响应内容
 			if (is_string($response)) {
 				echo $response;
 				// 对于字符串响应，在末尾添加 trace 信息
 				if (config('trace')) {
-					echo "\n<!-- Trace Info Start -->\n";
-					include __DIR__ . '/tpl/trace.php';
-					echo "\n<!-- Trace Info End -->\n";
+					$this->outputTrace();
 				}
 			} elseif (is_array($response)) {
 				header('Content-Type: application/json');
 				echo json_encode($response);
 			}
-			// 注意：如果 $response 为 null（控制器直接输出了内容），则不需要额外处理
+			// 注意：如果 $response 为 null（控制器直接输出了内容），trace 会在 Controller::display 中处理
 			
 		} catch (\Exception $e) {
 			throw $e;
 		}
+	}
+	
+	/**
+	 * 输出 trace 信息
+	 */
+	public static function outputTrace()
+	{
+		// 记录结束时间和内存
+		$endTime = microtime(true);
+		$endMem = memory_get_usage();
+		
+		// 计算运行时间和内存使用
+		self::$trace['endTime'] = $endTime;
+		self::$trace['endMem'] = $endMem;
+		self::$trace['runtime'] = number_format((self::$trace['endTime'] - self::$trace['beginTime']) * 1000, 2) . 'ms';
+		self::$trace['memory'] = number_format((self::$trace['endMem'] - self::$trace['beginMem']) / 1024, 2) . 'KB';
+		self::$trace['files'] = get_included_files();
+		
+		echo "\n<!-- Trace Info Start -->\n";
+		include __DIR__ . '/tpl/trace.php';
+		echo "\n<!-- Trace Info End -->\n";
 	}
 
 	/**
