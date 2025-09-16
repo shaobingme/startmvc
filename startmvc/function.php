@@ -10,6 +10,7 @@
 
 use startmvc\core\Config;
 use startmvc\core\Cache;
+use startmvc\core\Db;
 
 /**
  * 语言包调用
@@ -163,6 +164,51 @@ function url($url){
 	}
 	return str_replace('%2F', '/', urlencode($url));
 }
+
+/**
+ * 数据库助手函数 - 支持链式操作和自定义配置
+ * 
+ * 使用示例：
+ * db('user')->where('uid', 1)->get()                           // 使用默认配置
+ * db('user', $config)->where('uid', 1)->get()                 // 使用自定义配置
+ * db()->table('user')->where('uid', 1)->get()                 // 链式调用
+ * 
+ * 更多示例：
+ * db('user')->where('status', 1)->select('id,name')->getAll()
+ * db('user')->insert(['name' => 'test', 'email' => 'test@example.com'])
+ * db('user')->where('id', 1)->update(['name' => 'updated'])
+ * db('user')->where('id', 1)->delete()
+ * 
+ * @param string $table 表名
+ * @param array $config 数据库配置（可选）
+ * @return \startmvc\core\db\DbCore
+ */
+function db($table = '', $config = [])
+{
+    // 如果指定了表名，直接调用Db::connect()方法
+    if (!empty($table)) {
+        return Db::connect($config, $table);
+    }
+    
+    // 如果没有指定表名，返回Db门面类的代理对象以支持其他静态方法调用
+    return new class($config) {
+        private $config;
+        
+        public function __construct($config = []) {
+            $this->config = $config;
+        }
+        
+        public function __call($method, $args) {
+            // 对于table方法，传入配置参数
+            if ($method === 'table' && !empty($this->config)) {
+                return Db::table($args[0], $this->config);
+            }
+            return call_user_func_array([Db::class, $method], $args);
+        }
+    };
+}
+
+
 
 /**
  * 获取客户端的真实IP地址

@@ -1670,6 +1670,30 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 检查数据表是否存在
+     * 
+     * @param string $table 表名（可选，如果不提供则使用当前设置的表名）
+     * @return bool
+     */
+    public function is_table($table = null)
+    {
+        try {
+            $tableName = $table ?: $this->from;
+            if (empty($tableName)) {
+                return false;
+            }
+            
+            // 移除表前缀进行检查，因为SHOW TABLES会显示完整表名
+            $pdo = $this->getPdo();
+            $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
+            $stmt->execute([$tableName]);
+            return $stmt->rowCount() > 0;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
      * 开始事务
      *
      * @return bool

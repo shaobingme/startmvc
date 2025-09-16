@@ -11,36 +11,74 @@ use startmvc\core\Config;
 class Db
 {
     /**
-     * 数据库实例
-     * @var DbCore
+     * 数据库实例缓存
+     * @var array
      */
-    protected static $instance;
+    protected static $instances = [];
+    
+    /**
+     * 连接数据库并返回实例
+     * @param array $config 数据库配置
+     * @param string $table 表名
+     * @return DbCore
+     */
+    public static function connect($config = [], $table = '')
+    {
+        $instance = static::getInstance($config);
+        
+        if (!empty($table)) {
+            return $instance->table($table);
+        }
+        
+        return $instance;
+    }
     
     /**
      * 获取数据库表实例
      * @param string $table 表名
+     * @param array $config 数据库配置
      * @return DbCore
      */
-    public static function table($table)
+    public static function table($table, $config = [])
     {
-        return static::getInstance()->table($table);
+        return static::getInstance($config)->table($table);
     }
     
     /**
      * 获取数据库实例
+     * @param array $config 数据库配置
      * @return DbCore
      */
-    protected static function getInstance()
+    protected static function getInstance($config = [])
     {
-        if (static::$instance === null) {
-            $config = include CONFIG_PATH . '/database.php';
-            if (isset($config['driver']) && $config['driver'] !== '') {
-                static::$instance = DbCore::getInstance($config['connections'][$config['driver']]);
-            } else {
-                throw new \Exception('数据库配置不正确，请检查配置文件');
+        // 生成配置的唯一标识
+        $configKey = empty($config) ? 'default' : md5(serialize($config));
+        
+        if (!isset(static::$instances[$configKey])) {
+            if (empty($config)) {
+                // 使用默认配置
+                $defaultConfig = include CONFIG_PATH . '/database.php';
+                if (isset($defaultConfig['driver']) && $defaultConfig['driver'] !== '') {
+                    $config = $defaultConfig['connections'][$defaultConfig['driver']];
+                } else {
+                    throw new \Exception('数据库配置不正确，请检查配置文件');
+                }
             }
+            static::$instances[$configKey] = DbCore::getInstance($config);
         }
-        return static::$instance;
+        
+        return static::$instances[$configKey];
+    }
+    
+    /**
+     * 检查数据表是否存在
+     * @param string $table 表名
+     * @param array $config 数据库配置（可选）
+     * @return bool
+     */
+    public static function is_table($table, $config = [])
+    {
+        return static::getInstance($config)->is_table($table);
     }
     
     /**
