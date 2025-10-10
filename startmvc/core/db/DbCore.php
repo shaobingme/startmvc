@@ -1328,17 +1328,91 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取多条记录（向后兼容的别名方法）
+     * 获取单条记录（现代化命名）
+     * 注：此方法是 first() 的别名，为了提供更现代的API而添加，不是接口要求
+     * 
+     * @param bool|string $returnSql 是否仅返回SQL或返回类型
+     * @param string $argument 参数（当$returnSql指定为类名时使用）
+     *
+     * @return mixed 返回单条记录
+     */
+    public function one($returnSql = null, $argument = null)
+    {
+        return $this->first($returnSql, $argument);
+    }
+
+    /**
+     * 通过主键查找单条记录
+     * 
+     * @param mixed $id 主键值
+     * @param string $primaryKey 主键字段名，默认为'id'
+     * @param bool $throwIfNotFound 是否在找不到时抛出异常，默认false
+     * @throws \Exception 当记录不存在且$throwIfNotFound为true时
+     * @return mixed|null 返回找到的记录，未找到返回null（除非设置了抛异常）
+     */
+    public function find($id, $primaryKey = 'id', $throwIfNotFound = false)
+    {
+        if (is_null($id)) {
+            if ($throwIfNotFound) {
+                throw new \Exception("Invalid ID: null provided");
+            }
+            return null;
+        }
+        
+        $result = $this->where($primaryKey, $id)->first();
+        
+        if (is_null($result) && $throwIfNotFound) {
+            throw new \Exception("Record not found with {$primaryKey} = {$id}");
+        }
+        
+        return $result;
+    }
+
+    /**
+     * 通过主键查找单条记录，找不到抛出异常
+     * 注：此方法是 find() 的便捷方法，等同于 find($id, $primaryKey, true)
+     * 
+     * @deprecated 2.0.0 建议使用 find($id, 'id', true) 代替
+     * @param mixed $id 主键值
+     * @param string $primaryKey 主键字段名，默认为'id'
+     * @throws \Exception 当记录不存在时
+     * @return mixed 返回找到的记录
+     */
+    public function findOrFail($id, $primaryKey = 'id')
+    {
+        return $this->find($id, $primaryKey, true);
+    }
+
+    /**
+     * 通过主键查找多条记录
+     * 
+     * @param array $ids 主键值数组
+     * @param string $primaryKey 主键字段名，默认为'id'
+     * @return array 返回找到的记录数组
+     */
+    public function findMany(array $ids, $primaryKey = 'id')
+    {
+        if (empty($ids)) {
+            return [];
+        }
+        
+        return $this->in($primaryKey, $ids)->get();
+    }
+
+    /**
+     * 获取多条记录（现代化命名，与one()对称）
+     * 注：此方法是 get() 的别名，为了提供更现代的API而添加，不是接口要求
      * 
      * @param bool|string $returnSql 是否仅返回SQL或返回类型
      * @param string $argument 参数（当$returnSql指定为类名时使用）
      *
      * @return mixed 返回多条记录
      */
-    public function getAll($returnSql = null, $argument = null)
+    public function many($returnSql = null, $argument = null)
     {
         return $this->get($returnSql, $argument);
     }
+
 
     /**
      * 构建SELECT查询SQL
@@ -2237,6 +2311,40 @@ class DbCore implements DbInterface
         }
         
         return $this->query($query, false);
+    }
+
+    /**
+     * 切换布尔字段值（toggle方法是invert的别名）
+     * 
+     * @param string $column 列名
+     * @return int|bool 影响的行数或失败时返回false
+     */
+    public function toggle($column)
+    {
+        return $this->invert($column);
+    }
+
+    /**
+     * 更新记录的时间戳字段
+     * 类似Laravel的touch方法，用于更新updated_at等时间戳字段
+     * 
+     * @param string|array $columns 要更新的时间戳字段，默认为'updated_at'
+     * @return int|bool 影响的行数或失败时返回false
+     */
+    public function touch($columns = 'updated_at')
+    {
+        $data = [];
+        $timestamp = date('Y-m-d H:i:s');
+        
+        if (is_string($columns)) {
+            $columns = [$columns];
+        }
+        
+        foreach ($columns as $column) {
+            $data[$column] = $timestamp;
+        }
+        
+        return $this->update($data);
     }
 
     /**
