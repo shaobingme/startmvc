@@ -37,8 +37,8 @@ abstract class Controller
 	 */
 	protected function url($url)
 	{
-		$url = $url . config['url_suffix'];
-		if (config['urlrewrite']) {
+		$url = $url . config('url_suffix');
+		if (config('urlrewrite')) {
 			$url = '/' . $url;
 		} else {
 			$url = '/index.php/' . $url;

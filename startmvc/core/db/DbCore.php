@@ -334,6 +334,17 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 克隆查询构建器（用于聚合查询等场景）
+     * 
+     * @return void
+     */
+    public function __clone()
+    {
+        // PDO 对象不能被克隆，需要保持引用
+        // 其他属性会自动被克隆
+    }
+
+    /**
      * 执行聚合查询的通用方法
      * 
      * @param string $function 聚合函数名（MAX、MIN、SUM、COUNT、AVG）
@@ -344,20 +355,25 @@ class DbCore implements DbInterface
     {
         // 如果设置了返回SQL标志，构建查询并返回SQL
         if ($this->_returnSql) {
-            $this->select($function . '(' . $field . ') as aggregate_value');
-            $query = $this->buildSelectQuery();
+            $clone = clone $this;
+            $clone->select = $function . '(' . $field . ') as aggregate_value';
+            $query = $clone->buildSelectQuery();
             $this->_returnSql = false;
-            $this->reset();
             return $query;
         }
         
-        // 构建聚合查询
-        $this->select($function . '(' . $field . ') as aggregate_value');
-        $query = $this->buildSelectQuery();
+        // 克隆当前查询构建器，避免污染原对象
+        $clone = clone $this;
         
-        // 执行查询
-        $result = $this->query($query, false);
-        $this->reset();
+        // 聚合查询不需要 select、limit、offset、orderBy
+        $clone->select = $function . '(' . $field . ') as aggregate_value';
+        $clone->limit = null;
+        $clone->offset = null;
+        $clone->orderBy = null;
+        
+        // 构建并执行查询
+        $query = $clone->buildSelectQuery();
+        $result = $clone->query($query, false);
         
         // 返回聚合结果
         if ($result && is_array($result) && isset($result['aggregate_value'])) {
@@ -2029,6 +2045,11 @@ class DbCore implements DbInterface
         
         if (is_bool($data)) {
             return $data ? 1 : 0;
+        }
+        
+        // 如果是数组或对象，转换为JSON字符串
+        if (is_array($data) || is_object($data)) {
+            $data = json_encode($data);
         }
         
         // 如果PDO连接存在，使用PDO的quote方法
