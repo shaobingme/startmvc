@@ -1306,11 +1306,7 @@ class DbCore implements DbInterface
             return $query;
         }
         
-        $result = $this->query($query, true, $returnSql, $argument);
-        
-        // 只重置查询构建器状态，保留查询结果状态（numRows等）
-        $this->reset();
-        return $result;
+        return $this->query($query, true, $returnSql, $argument);
     }
 
     /**
@@ -1336,11 +1332,7 @@ class DbCore implements DbInterface
             return $query;
         }
         
-        $result = $this->query($query, false, $returnSql, $argument);
-        
-        // 只重置查询构建器状态，保留查询结果状态（numRows等）
-        $this->reset();
-        return $result;
+        return $this->query($query, false, $returnSql, $argument);
     }
 
     /**
@@ -2023,6 +2015,11 @@ class DbCore implements DbInterface
         self::logSql($this->query, $params, $executionTime);
 
         $this->queryCount++;
+        
+        // 自动重置查询构建器状态，防止数据污染
+        // 注意：保留查询结果状态（numRows, insertId, query, error, result）
+        $this->reset();
+        
         return $this->result;
     }
 
