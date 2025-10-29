@@ -2588,5 +2588,3 @@ class DbCore implements DbInterface
         return $this;
     }
 }
-
-

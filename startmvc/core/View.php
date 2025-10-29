@@ -287,12 +287,33 @@ class view{
 			parse_str($query, $params);
 		}
 		
-		// 检查是否已经包含文件扩展名
-		$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
-		if (!empty($fileExtension)) {
-			$tplFile = $this->tpl_template_dir . $name;
+		// 检查是否指定了模块 {include common/header|Admin}
+		$tplFile = '';
+		if (strpos($name, '|') !== false) {
+			list($path, $module) = explode('|', $name, 2);
+			$module = trim($module);
+			$path = trim($path);
+			
+			// 检查是否已经包含文件扩展名
+			$fileExtension = pathinfo($path, PATHINFO_EXTENSION);
+			
+			// 构建跨模块模板路径
+			$theme = config('theme') ? config('theme') . DS : '';
+			$moduleDir = APP_PATH . strtolower($module) . DS . 'view' . DS . $theme;
+			
+			if (!empty($fileExtension)) {
+				$tplFile = $moduleDir . $path;
+			} else {
+				$tplFile = $moduleDir . $path . $this->tpl_suffix;
+			}
 		} else {
-			$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
+			// 使用当前模块
+			$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
+			if (!empty($fileExtension)) {
+				$tplFile = $this->tpl_template_dir . $name;
+			} else {
+				$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
+			}
 		}
 		
 		if (file_exists($tplFile)) {
@@ -330,12 +351,33 @@ class view{
 			parse_str($query, $params);
 		}
 		
-		// 检查是否已经包含文件扩展名
-		$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
-		if (!empty($fileExtension)) {
-			$tplFile = $this->tpl_template_dir . $name;
+		// 检查是否指定了模块 {include common/header|Admin}
+		$tplFile = '';
+		if (strpos($name, '|') !== false) {
+			list($path, $module) = explode('|', $name, 2);
+			$module = trim($module);
+			$path = trim($path);
+			
+			// 检查是否已经包含文件扩展名
+			$fileExtension = pathinfo($path, PATHINFO_EXTENSION);
+			
+			// 构建跨模块模板路径
+			$theme = config('theme') ? config('theme') . DS : '';
+			$moduleDir = APP_PATH . strtolower($module) . DS . 'view' . DS . $theme;
+			
+			if (!empty($fileExtension)) {
+				$tplFile = $moduleDir . $path;
+			} else {
+				$tplFile = $moduleDir . $path . $this->tpl_suffix;
+			}
 		} else {
-			$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
+			// 使用当前模块
+			$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
+			if (!empty($fileExtension)) {
+				$tplFile = $this->tpl_template_dir . $name;
+			} else {
+				$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
+			}
 		}
 		
 		if (file_exists($tplFile)) {
