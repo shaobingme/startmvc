@@ -350,7 +350,6 @@ class view{
 			list($name, $query) = explode('?', $name, 2);
 			parse_str($query, $params);
 		}
-		
 		// 检查是否指定了模块 {include common/header|Admin}
 		$tplFile = '';
 		if (strpos($name, '|') !== false) {

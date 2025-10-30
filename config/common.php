@@ -29,4 +29,10 @@ return [
         'cookie_lifetime' => 7200,       // 会话Cookie生存时间（秒）
         'gc_maxlifetime' => 7200,        // 垃圾回收时间（秒）
     ],
+    // CSRF 防护配置
+    'csrf' => [
+        'token_lifetime' => 3600,        // Token有效期（秒）
+        'token_name' => 'csrf_token',    // Token字段名
+        'auto_delete' => false,          // 验证后是否自动删除（false=可重复使用，true=一次性）
+    ],
 ];
