@@ -406,11 +406,11 @@ class Router
             // 处理控制器路径
             $parts = explode('/', $target);
             if (count($parts) >= 2) {
-                $methodName = array_pop($parts);
-                $controllerName = array_pop($parts);
+                $methodName = self::convertAction(array_pop($parts));
+                $controllerName = self::convertController(array_pop($parts));
                 $namespace = !empty($parts) ? implode('\\', $parts) : 'app\\controllers';
                 
-                $controllerClass = $namespace . '\\' . ucfirst($controllerName) . 'Controller';
+                $controllerClass = $namespace . '\\' . $controllerName . 'Controller';
                 $controller = new $controllerClass();
                 return call_user_func_array([$controller, $methodName], $params);
             } else {
@@ -475,6 +475,27 @@ class Router
     }
     
     /**
+     * 转换URL片段为控制器名称 (StudlyCase)
+     * @param string $part
+     * @return string
+     */
+    protected static function convertController($part)
+    {
+        return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', strtolower($part))));
+    }
+
+    /**
+     * 转换URL片段为方法名称 (camelCase)
+     * @param string $part
+     * @return string
+     */
+    protected static function convertAction($part)
+    {
+        $studly = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', strtolower($part))));
+        return lcfirst($studly);
+    }
+
+    /**
      * 解析路由规则
      * @param string $uri 请求URI
      * @return array 解析结果
@@ -532,8 +553,8 @@ class Router
                         $parts = explode('/', $target);
                         return [
                             isset($parts[0]) ? strtolower($parts[0]) : $defaultModule,
-                            isset($parts[1]) ? ucfirst(strtolower($parts[1])) : $defaultController,
-                            isset($parts[2]) ? strtolower($parts[2]) : $defaultAction,
+                            isset($parts[1]) ? self::convertController($parts[1]) : $defaultController,
+                            isset($parts[2]) ? self::convertAction($parts[2]) : $defaultAction,
                             array_slice($parts, 3)
                         ];
                     }
@@ -557,8 +578,8 @@ class Router
                         $parts = explode('/', $target);
                         return [
                             isset($parts[0]) ? strtolower($parts[0]) : $defaultModule,
-                            isset($parts[1]) ? ucfirst(strtolower($parts[1])) : $defaultController,
-                            isset($parts[2]) ? strtolower($parts[2]) : $defaultAction,
+                            isset($parts[1]) ? self::convertController($parts[1]) : $defaultController,
+                            isset($parts[2]) ? self::convertAction($parts[2]) : $defaultAction,
                             array_slice($parts, 3)
                         ];
                     }
@@ -588,16 +609,16 @@ class Router
             if (is_dir($modulePath)) {
                 return [
                     $possibleModule, // 使用小写的模块名
-                    isset($parts[1]) ? ucfirst(strtolower($parts[1])) : $defaultController, // 控制器名首字母大写
-                    isset($parts[2]) ? strtolower($parts[2]) : $defaultAction, // 方法名小写
+                    isset($parts[1]) ? self::convertController($parts[1]) : $defaultController, // 控制器名StudlyCase
+                    isset($parts[2]) ? self::convertAction($parts[2]) : $defaultAction, // 方法名camelCase
                     array_slice($parts, 3)
                 ];
             } else {
                 // 如果模块目录不存在，假设省略了默认模块，将第一个部分作为控制器
                 return [
                     $defaultModule,
-                    isset($parts[0]) ? ucfirst(strtolower($parts[0])) : $defaultController, // 控制器名首字母大写
-                    isset($parts[1]) ? strtolower($parts[1]) : $defaultAction, // 方法名小写
+                    isset($parts[0]) ? self::convertController($parts[0]) : $defaultController, // 控制器名StudlyCase
+                    isset($parts[1]) ? self::convertAction($parts[1]) : $defaultAction, // 方法名camelCase
                     array_slice($parts, 2)
                 ];
             }
