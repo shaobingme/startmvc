@@ -156,6 +156,7 @@ function cache($name, $value = null, $expire = 3600, $driver = null)
  * url的方法
  */
 function url($url){
+	$url = ltrim($url, '/');
 	$url = $url . config('url_suffix');
 	if (config('urlrewrite')) {
 		$url = '/' . $url;

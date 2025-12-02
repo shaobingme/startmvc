@@ -63,20 +63,35 @@
 
 </html>
 <script>
-	sec = 3;
-	function time() {
-		document.querySelector('.sec').innerHTML = sec;
-		sec--;
-		if (sec <= 0)
-            <?php if ($url == '') {
-				if($code == 1){ ?>
-			window.location.href=document.referrer;
+	(function() {
+		var sec = 3;
+		var timerElement = document.querySelector('.sec');
+		
+		function jump() {
+			<?php if ($url == '') { ?>
+				<?php if($code == 1){ ?>
+				// 成功：返回上一页并刷新（通常用于表单提交后）
+				window.location.href = document.referrer;
 				<?php } else { ?>
-            window.history.go(-1);
-            <?php } } else { ?>
-            window.location.href='<?php echo $url; ?>';
-            <?php } ?>
-            setTimeout('time()', 1000);
-	}
-	time();
+				// 失败：返回上一页（保留表单数据）
+				window.history.go(-1);
+				<?php } ?>
+			<?php } else { ?>
+				// 指定跳转地址
+				window.location.href = '<?php echo $url; ?>';
+			<?php } ?>
+		}
+
+		function time() {
+			timerElement.innerHTML = sec;
+			if (sec <= 0) {
+				jump();
+				return;
+			}
+			sec--;
+			setTimeout(time, 1000);
+		}
+		
+		time();
+	})();
 </script>
