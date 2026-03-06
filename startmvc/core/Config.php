@@ -89,6 +89,13 @@ class Config
 		// 处理点语法
 		if (strpos($key, '.') !== false) {
 			$parts = explode('.', $key);
+			$file = $parts[0];
+			
+			// 自动加载配置文件（如果未加载且不是 common）
+			if (!isset(self::$config[$file]) && $file !== 'common') {
+				self::load($file);
+			}
+			
 			$config = self::$config;
 			
 			foreach ($parts as $part) {
@@ -101,12 +108,17 @@ class Config
 			return $config;
 		}
 		
-		// 简单键名：先从 common 配置组中查找，再从其他配置组查找
+		// 简单键名：先从 common 配置组中查找
 		if (isset(self::$config['common'][$key])) {
 			return self::$config['common'][$key];
 		}
 		
-		// 如果 common 中没有，再从其他配置组中查找
+		// 如果 common 中没有，尝试自动加载配置文件
+		if (!isset(self::$config[$key]) && $key !== 'common') {
+			self::load($key);
+		}
+		
+		// 从其他配置组中查找
 		return self::$config[$key] ?? $default;
 	}
 
