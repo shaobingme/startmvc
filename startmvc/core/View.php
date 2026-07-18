@@ -27,31 +27,10 @@ class view{
 
 
 	private static $rules = [
-		// {$var}, {$array['key']}
-		// 包含运算符的表达式 {$var+1}, {$array['key']-1} 等
-		'/{\$([^\}]*[\+\-\*\/\%][^\}]*)}/i' => '<?php echo $${1}; ?>',
-		
-		// 三元运算必须先于普通变量规则，否则会被 {$var} 规则误匹配
-		'/{\$([^\}\?\:\|\.]{1,})\?(.*?):(.*?)}/i' => '<?php echo isset($${1}) && !empty($${1}) ? ${2} : ${3}; ?>',
-		
-		'/{\$([^\}\?\:\|\.]{1,})}/i' => '<?php echo isset($${1}) ? $${1} : \'\'; ?>',
-
-		// array: {$array.key}
-		'/{\$([0-9a-z_]{1,})\.([0-9a-z_]{1,})}/i' => '<?php echo isset($${1}[\'${2}\']) ? $${1}[\'${2}\'] : \'\'; ?>',
-
-		// two-demensional array
-		'/{\$([0-9a-z_]{1,})\.([0-9a-z_]{1,})\.([0-9a-z_]{1,})}/i' => '<?php echo isset($${1}[\'${2}\'][\'${3}\']) ? $${1}[\'${2}\'][\'${3}\'] : \'\'; ?>',
-
 		// for loop
 		'/{for ([^\}]+)}/i' => '<?php for ${1} {?>',
 		'/{\/for}/i' => '<?php } ?>',
-
-		// foreach ( $array as $key => $value )
-		'/{loop\s+\$([^\}]{1,})\s+\$([^\}]{1,})\s+\$([^\}]{1,})\s*}/i' => '<?php if(isset($${1}) && is_array($${1})) foreach ( $${1} as $${2} => $${3} ) { ?>',
 		'/{\/loop}/i' => '<?php } ?>',
-
-		// foreach ( $array as $value )
-		'/{loop\s+\$(.*?)\s+\$([0-9a-z_]{1,})\s*}/i' => '<?php if(isset($${1}) && is_array($${1})) foreach ( $${1} as $${2} ) { ?>',
 
 		// foreach ( $array as $key => $value )
 		'/{foreach\s+(.*?)}/i' => '<?php foreach ( ${1} ) { ?>',
@@ -59,14 +38,10 @@ class view{
 		'/{\/foreach}/i' => '<?php } ?>',
 		
 		// php: excute the php expression
-		// echo: print the php expression
 		'/{php\s+(.*?)}/i' => '<?php ${1} ?>',
-		'/{echo\s+(.*?)}/i' => '<?php echo ${1} ?>',
 
 		// if else tag
-		'/{if\s+(.*?)}/i' => '<?php if ( ${1} ) { ?>',
 		'/{else}/i' => '<?php } else { ?>',
-		'/{elseif\s+(.*?)}/i' => '<?php } elseif ( ${1} ) { ?>',
 		'/{\/if}/i' => '<?php } ?>',
 
 		//lang
@@ -80,9 +55,6 @@ class view{
 		
 		// 输出带HTML标签的内容
 		'/{html\s+\$(.*?)}/i' => '<?php echo isset($${1}) ? $${1} : \'\'; ?>',
-		
-		// 日期格式化
-		'/{date\s+\$(.*?)\s+(.*?)}/i' => '<?php echo isset($${1}) ? date(\'${2}\', $${1}) : \'\'; ?>',
 	];
 
 	function __construct(){
@@ -241,7 +213,7 @@ class view{
 		$content = $this->parseIncludeTags($content);
 		
 		// 执行模板标签替换
-		$content = preg_replace(array_keys(self::$rules), self::$rules, $content);
+		$content = $this->compileTemplateContent($content);
 
 		// 增加编译后的钩子
 		if (method_exists($this, 'afterCompile')) {
@@ -257,6 +229,268 @@ class view{
 		$content = "<?php /* 模板编译于: " . date('Y-m-d H:i:s') . " */ ?>\n" . $content;
 		
 		file_put_contents($cacheFile, $content, LOCK_EX);
+	}
+
+	/**
+	 * 统一编译模板表达式标签
+	 */
+	protected function compileTemplateContent($content) {
+		$content = preg_replace_callback(
+			'/\{\$([^{}]+)\}/',
+			function ($matches) {
+				return $this->compileOutputTag($matches[1]);
+			},
+			$content
+		);
+
+		$content = preg_replace_callback(
+			'/{loop\s+(.+?)\s+\$([a-zA-Z_][a-zA-Z0-9_]*)\s+\$([a-zA-Z_][a-zA-Z0-9_]*)\s*}/i',
+			function ($matches) {
+				return $this->compileLoopTag($matches[1], $matches[2], $matches[3]);
+			},
+			$content
+		);
+
+		$content = preg_replace_callback(
+			'/{loop\s+(.+?)\s+\$([a-zA-Z_][a-zA-Z0-9_]*)\s*}/i',
+			function ($matches) {
+				return $this->compileLoopTag($matches[1], null, $matches[2]);
+			},
+			$content
+		);
+
+		$content = preg_replace_callback(
+			'/{if\s+([^}]+)}/i',
+			function ($matches) {
+				return '<?php if ( ' . $this->compileConditionExpression($matches[1]) . ' ) { ?>';
+			},
+			$content
+		);
+
+		$content = preg_replace_callback(
+			'/{elseif\s+([^}]+)}/i',
+			function ($matches) {
+				return '<?php } elseif ( ' . $this->compileConditionExpression($matches[1]) . ' ) { ?>';
+			},
+			$content
+		);
+
+		$content = preg_replace_callback(
+			'/{echo\s+([^}]+)}/i',
+			function ($matches) {
+				return '<?php echo ' . $this->compilePhpExpression($matches[1]) . '; ?>';
+			},
+			$content
+		);
+
+		$content = preg_replace_callback(
+			'/{date\s+([^\s}]+)\s+([^}]+)}/i',
+			function ($matches) {
+				return $this->compileDateTag($matches[1], $matches[2]);
+			},
+			$content
+		);
+
+		return preg_replace(array_keys(self::$rules), self::$rules, $content);
+	}
+
+	/**
+	 * 编译 loop 标签，支持点号路径数据源
+	 */
+	protected function compileLoopTag($sourceExpression, $keyVariable = null, $valueVariable = null) {
+		$sourceExpression = $this->compileLoopSourceExpression($sourceExpression);
+		$foreachTarget = '$' . $valueVariable;
+
+		if ($keyVariable !== null) {
+			$foreachTarget = '$' . $keyVariable . ' => $' . $valueVariable;
+		}
+
+		return '<?php if(isset(' . $sourceExpression . ') && is_array(' . $sourceExpression . ')) foreach ( '
+			. $sourceExpression . ' as ' . $foreachTarget . ' ) { ?>';
+	}
+
+	/**
+	 * 编译 loop 数据源表达式
+	 */
+	protected function compileLoopSourceExpression($expression) {
+		$expression = trim($expression);
+		if ($expression !== '' && $expression[0] !== '$') {
+			$expression = '$' . $expression;
+		}
+
+		return $this->transformDotNotationInExpression($expression);
+	}
+
+	/**
+	 * 编译 date 标签，支持点号路径数据源
+	 */
+	protected function compileDateTag($sourceExpression, $format) {
+		$sourceExpression = $this->compileLoopSourceExpression($sourceExpression);
+		$format = var_export(trim($format), true);
+
+		return '<?php echo isset(' . $sourceExpression . ') ? date(' . $format . ', ' . $sourceExpression . ') : \'\'; ?>';
+	}
+
+	/**
+	 * 编译输出标签 {$...}
+	 */
+	protected function compileOutputTag($expression) {
+		$expression = '$' . ltrim(trim($expression), '$');
+
+		if ($this->isSimpleVariableExpression($expression)) {
+			$phpExpression = $this->transformDotNotationInExpression($expression);
+			return '<?php echo isset(' . $phpExpression . ') ? ' . $phpExpression . ' : \'\'; ?>';
+		}
+
+		return '<?php echo ' . $this->compilePhpExpression($expression) . '; ?>';
+	}
+
+	/**
+	 * 编译条件表达式，简单变量走 empty 判断以兼容未定义变量
+	 */
+	protected function compileConditionExpression($expression) {
+		return $this->compilePhpExpression($expression, false, true);
+	}
+
+	/**
+	 * 将模板表达式编译为 PHP 表达式
+	 */
+	protected function compilePhpExpression($expression, $guardSimpleVariable = false, $conditionContext = false) {
+		$expression = trim($expression);
+		$ternaryParts = $this->splitTernaryExpression($expression);
+
+		if ($ternaryParts !== false) {
+			return '('
+				. $this->compileConditionExpression($ternaryParts['condition'])
+				. ' ? '
+				. $this->compilePhpExpression($ternaryParts['if_true'], true, false)
+				. ' : '
+				. $this->compilePhpExpression($ternaryParts['if_false'], true, false)
+				. ')';
+		}
+
+		$phpExpression = $this->transformDotNotationInExpression($expression);
+
+		if ($conditionContext && $this->isSimpleVariableExpression($expression)) {
+			return '!empty(' . $phpExpression . ')';
+		}
+
+		if ($guardSimpleVariable && $this->isSimpleVariableExpression($expression)) {
+			return '(isset(' . $phpExpression . ') ? ' . $phpExpression . ' : \'\')';
+		}
+
+		return $phpExpression;
+	}
+
+	/**
+	 * 判断是否为简单变量表达式，支持多级点号和数组下标
+	 */
+	protected function isSimpleVariableExpression($expression) {
+		return preg_match('/^\$[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\[[^\]]+\])*$/', trim($expression)) === 1;
+	}
+
+	/**
+	 * 将表达式中的多级点号路径转为 PHP 数组下标
+	 */
+	protected function transformDotNotationInExpression($expression) {
+		return preg_replace_callback(
+			'/\$[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+/',
+			function ($matches) {
+				return $this->convertDotPathToArrayAccess($matches[0]);
+			},
+			$expression
+		);
+	}
+
+	/**
+	 * 将 $item.user.email 转为 $item['user']['email']
+	 */
+	protected function convertDotPathToArrayAccess($expression) {
+		$segments = explode('.', $expression);
+		$phpExpression = array_shift($segments);
+
+		foreach ($segments as $segment) {
+			$phpExpression .= "['" . $segment . "']";
+		}
+
+		return $phpExpression;
+	}
+
+	/**
+	 * 拆分顶层三元表达式，支持多层嵌套和字符串字面量
+	 */
+	protected function splitTernaryExpression($expression) {
+		$length = strlen($expression);
+		$questionPos = null;
+		$colonPos = null;
+		$nestedTernaryCount = 0;
+		$bracketDepth = 0;
+		$quote = null;
+
+		for ($i = 0; $i < $length; $i++) {
+			$char = $expression[$i];
+
+			if ($quote !== null) {
+				if ($char === '\\' && $i + 1 < $length) {
+					$i++;
+					continue;
+				}
+
+				if ($char === $quote) {
+					$quote = null;
+				}
+				continue;
+			}
+
+			if ($char === '\'' || $char === '"') {
+				$quote = $char;
+				continue;
+			}
+
+			if ($char === '(' || $char === '[' || $char === '{') {
+				$bracketDepth++;
+				continue;
+			}
+
+			if ($char === ')' || $char === ']' || $char === '}') {
+				if ($bracketDepth > 0) {
+					$bracketDepth--;
+				}
+				continue;
+			}
+
+			if ($bracketDepth !== 0) {
+				continue;
+			}
+
+			if ($char === '?') {
+				if ($questionPos === null) {
+					$questionPos = $i;
+					$nestedTernaryCount = 1;
+				} else {
+					$nestedTernaryCount++;
+				}
+				continue;
+			}
+
+			if ($char === ':' && $questionPos !== null) {
+				$nestedTernaryCount--;
+				if ($nestedTernaryCount === 0) {
+					$colonPos = $i;
+					break;
+				}
+			}
+		}
+
+		if ($questionPos === null || $colonPos === null) {
+			return false;
+		}
+
+		return [
+			'condition' => trim(substr($expression, 0, $questionPos)),
+			'if_true' => trim(substr($expression, $questionPos + 1, $colonPos - $questionPos - 1)),
+			'if_false' => trim(substr($expression, $colonPos + 1)),
+		];
 	}
 	
 	/**
@@ -387,7 +621,7 @@ class view{
 			$content = $this->parseIncludeTags($content);
 			
 			// 编译其他模板标签
-			$content = preg_replace(array_keys(self::$rules), self::$rules, $content);
+			$content = $this->compileTemplateContent($content);
 			
 			// 创建临时文件以执行
 			$tempFile = $this->tpl_compile_dir . md5($name . microtime(true)) . '.php';
