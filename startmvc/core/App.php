@@ -36,34 +36,29 @@ class App
 			'request_method' => $_SERVER['REQUEST_METHOD']
 		];
 		
-		try {
-			Exception::init(); 
-			$this->loadFunction();
-			
-			// 创建请求对象
-			$request = new Request();
-			
-			// 通过中间件管道处理请求
-			$response = Middleware::run($this, function() {
-				return $this->handleRequest();
-			});
-			
-			// 输出响应内容
-			if (is_string($response)) {
-				echo $response;
-				// 对于字符串响应，在末尾添加 trace 信息
-				if (config('trace')) {
-					$this->outputTrace();
-				}
-			} elseif (is_array($response)) {
-				header('Content-Type: application/json');
-				echo json_encode($response);
+		Exception::init();
+		$this->loadFunction();
+
+		// 创建请求对象
+		$request = new Request();
+
+		// 通过中间件管道处理请求
+		$response = Middleware::run($request, function($request) {
+			return $this->handleRequest();
+		});
+
+		// 输出响应内容
+		if (is_string($response)) {
+			echo $response;
+			// 对于字符串响应，在末尾添加 trace 信息
+			if (config('trace')) {
+				self::outputTrace();
 			}
-			// 注意：如果 $response 为 null（控制器直接输出了内容），trace 会在 Controller::display 中处理
-			
-		} catch (\Exception $e) {
-			throw $e;
+		} elseif (is_array($response)) {
+			header('Content-Type: application/json');
+			echo json_encode($response);
 		}
+		// 注意：如果 $response 为 null（控制器直接输出了内容），trace 会在 Controller::display 中处理
 	}
 	
 	/**
@@ -114,38 +109,8 @@ class App
 		if (!class_exists($controller)) {
 			throw new \Exception($controller.'控制器不存在');
 		}
-		$action .= 'Action';		
+		$action .= 'Action';
 		return Loader::make($controller, $action, $argv);
-	}
-	/**
-	 * 自定义错误处理触发错误
-	 */
-	 public static function errorHandler($level,$message, $file, $line)
-	{
-		if (error_reporting() !== 0) {
-			$errorMessage = "错误提示：{$message}，文件：{$file}，行号：{$line}";
-			throw new \Exception($errorMessage, $level);
-		}
-	}
-	/**
-	 * 异常错误处理
-	 */
-	public static function exceptionHandler($exception)
-	{
-		// Code is 404 (not found) or 500 (general error)
-		$code = $exception->getCode();
-		if ($code != 404) {
-			$code = 500;
-		}
-		http_response_code($code);
-		if (config('debug')) {
-			include 'tpl/debug.php';
-			//var_dump($exception);
-		} else {
-			//$log = new Log();
-			//$log->debug($exception->getMessage() . '\n' . $exception->getFile() . '\n' . $exception->getLine());
-			return $code;
-		}
 	}
 
 	/**
@@ -153,9 +118,10 @@ class App
 	 */
 	protected function registerMiddleware()
 	{
-		// 从配置文件加载中间件
-		$middleware = config('middleware') ?? [];
-		
+		// 从配置文件加载中间件（config/middleware.php 全注释时 require 返回 1，需做数组校验）
+		$middleware = config('middleware');
+		$middleware = is_array($middleware) ? $middleware : [];
+
 		// 注册中间件别名
 		$aliases = $middleware['aliases'] ?? [];
 		foreach ($aliases as $alias => $class) {
@@ -174,58 +140,42 @@ class App
 	 */
 	private function handleRequest()
 	{
-		try {
-			// 获取当前URI
-			$uri = $_SERVER['REQUEST_URI'];
-			
-			// 移除查询字符串
-			if (strpos($uri, '?') !== false) {
-				$uri = substr($uri, 0, strpos($uri, '?'));
-			}
-			
-			// 移除前后的斜杠
-			$uri = trim($uri, '/');
-			
-			// 过滤入口文件名（如index.php）
-			$scriptName = basename($_SERVER['SCRIPT_NAME']);
-			if (strpos($uri, $scriptName) === 0) {
-				$uri = substr($uri, strlen($scriptName));
-				$uri = trim($uri, '/');
-			}
-			
-			// 使用Router类的parse方法解析URI（Router会自动处理URL后缀）
-			$parseResult = Router::parse($uri);
-			
-			if ($parseResult && count($parseResult) >= 3) {
-				$module = $parseResult[0];
-				$controller = $parseResult[1];
-				$action = $parseResult[2];
-				$params = isset($parseResult[3]) ? $parseResult[3] : [];
-			} else {
-				// 如果解析失败，使用默认值
-				$module = Config::get('common.default_module', 'home');
-				$controller = Config::get('common.default_controller', 'Index');
-				$action = Config::get('common.default_action', 'index');
-				$params = [];
-			}
-			
-			// 使用原有的startApp方法
-			return self::startApp($module, $controller, $action, $params);
-			
-		} catch (\Exception $e) {
-			throw $e;
-		}
-	}
+		// 获取当前URI
+		$uri = $_SERVER['REQUEST_URI'];
 
-	/**
-	 * 显示追踪信息
-	 */
-	protected static function showTrace()
-	{
-		// 确保输出在页面最后
-		register_shutdown_function(function() {
-			// 包含trace模板
-			include __DIR__ . '/tpl/trace.php';
-		});
+		// 移除查询字符串
+		$questionPos = strpos($uri, '?');
+		if ($questionPos !== false) {
+			$uri = substr($uri, 0, $questionPos);
+		}
+
+		// 移除前后的斜杠
+		$uri = trim($uri, '/');
+
+		// 过滤入口文件名（如index.php）
+		$scriptName = basename($_SERVER['SCRIPT_NAME']);
+		if (strpos($uri, $scriptName) === 0) {
+			$uri = substr($uri, strlen($scriptName));
+			$uri = trim($uri, '/');
+		}
+
+		// 使用Router类的parse方法解析URI（Router会自动处理URL后缀）
+		$parseResult = Router::parse($uri);
+
+		if ($parseResult && count($parseResult) >= 3) {
+			$module = $parseResult[0];
+			$controller = $parseResult[1];
+			$action = $parseResult[2];
+			$params = isset($parseResult[3]) ? $parseResult[3] : [];
+		} else {
+			// 如果解析失败，使用默认值
+			$module = Config::get('common.default_module', 'home');
+			$controller = Config::get('common.default_controller', 'Index');
+			$action = Config::get('common.default_action', 'index');
+			$params = [];
+		}
+
+		// 使用原有的startApp方法
+		return self::startApp($module, $controller, $action, $params);
 	}
 }
