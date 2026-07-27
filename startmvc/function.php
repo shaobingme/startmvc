@@ -8,9 +8,76 @@
  * @link	  http://startmvc.com
  */
 
+// 加载 .env 环境变量文件
+(function () {
+    $envFile = ROOT_PATH . '.env';
+    if (!file_exists($envFile)) {
+        return;
+    }
+    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) {
+        return;
+    }
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#') {
+            continue;
+        }
+        if (stripos($line, 'export ') === 0) {
+            $line = substr($line, 7);
+        }
+        $pos = strpos($line, '=');
+        if ($pos === false) {
+            continue;
+        }
+        $key = trim(substr($line, 0, $pos));
+        $value = trim(substr($line, $pos + 1));
+        if (strlen($value) >= 2) {
+            $first = $value[0];
+            $last = $value[strlen($value) - 1];
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $value = substr($value, 1, -1);
+            }
+        }
+        $value = preg_replace_callback('/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/', function ($m) {
+            return getenv($m[1]) ?: '';
+        }, $value);
+        putenv("{$key}={$value}");
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
+    }
+})();
+
 use startmvc\core\Config;
 use startmvc\core\Cache;
 use startmvc\core\Db;
+
+/**
+ * 获取环境变量值，支持默认值
+ *
+ * @param string $key     环境变量名
+ * @param mixed  $default 默认值
+ * @return mixed
+ */
+function env($key, $default = null)
+{
+    $value = getenv($key);
+    if ($value === false || $value === '') {
+        return $default;
+    }
+    switch (strtolower($value)) {
+        case 'true':
+        case '(true)':
+            return true;
+        case 'false':
+        case '(false)':
+            return false;
+        case 'null':
+        case '(null)':
+            return null;
+    }
+    return $value;
+}
 
 /**
  * 语言包调用
