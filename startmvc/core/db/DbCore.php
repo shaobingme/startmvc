@@ -114,10 +114,10 @@ class DbCore implements DbInterface
     protected static $sqlLogs = [];
 
     /**
-     * 单例实例
-     * @var DbCore
+     * 单例实例集合（按配置内容区分，支持多数据库连接）
+     * @var DbCore[]
      */
-    protected static $instance;
+    protected static $instances = [];
     
     /**
      * 是否已连接
@@ -158,20 +158,24 @@ class DbCore implements DbInterface
     }
     
     /**
-     * 获取单例实例
+     * 获取单例实例（按配置内容区分，不同配置返回不同实例）
      * @param array $config 数据库配置
      * @return DbCore
      */
     public static function getInstance($config = null)
     {
-        if (static::$instance === null) {
-            if ($config === null) {
-                $config = include CONFIG_PATH . '/database.php';
-                $config = $config['connections'][$config['driver']];
-            }
-            static::$instance = new static($config);
+        if ($config === null) {
+            $config = include CONFIG_PATH . '/database.php';
+            $config = $config['connections'][$config['driver']];
         }
-        return static::$instance;
+
+        // 按配置内容生成唯一键，保证多数据库配置能拿到各自独立的连接实例
+        $key = md5(serialize($config));
+        if (!isset(static::$instances[$key])) {
+            static::$instances[$key] = new static($config);
+        }
+
+        return static::$instances[$key];
     }
 
     /**
@@ -734,18 +738,25 @@ class DbCore implements DbInterface
             case 'is null':
             case 'isnull':
                 return $field . ' IS NULL';
-                
+
             case 'is not null':
             case 'isnotnull':
                 return $field . ' IS NOT NULL';
-                
+
+            case 'regexp':
+            case 'not regexp':
+            case 'rlike':
+                return $field . ' ' . strtoupper($operator) . ' ' . $this->escape($val);
+
             default:
                 // 标准操作符: =, >, <, >=, <=, <>, !=
-                if (in_array($operator, ['=', '>', '<', '>=', '<=', '<>', '!='])) {
+                if (in_array($operator, ['=', '>', '<', '>=', '<=', '<>', '!='], true)) {
                     return $field . ' ' . $operator . ' ' . $this->escape($val);
                 }
-                // 默认等于
-                return $field . ' = ' . $this->escape($operator);
+                // 未知操作符直接抛错，fail-fast：
+                // 原逻辑会把操作符当值、静默丢弃$val（如 where('name','regexp','^a') 变成 name='regexp'），
+                // 条件悄悄变宽属于安全隐患，必须显式报错
+                throw new \InvalidArgumentException('不支持的WHERE操作符: ' . $operator);
         }
     }
 
@@ -1832,24 +1843,35 @@ class DbCore implements DbInterface
 
     /**
      * 检查数据表是否存在
-     * 
-     * @param string $table 表名（可选，如果不提供则使用当前设置的表名）
+     *
+     * @param string $table 表名（可选，支持带或不带前缀；不提供则使用当前设置的表名）
      * @return bool
      */
     public function is_table($table = null)
     {
         try {
-            $tableName = $table ?: $this->from;
+            if (!empty($table)) {
+                // 显式传参：校验表名并附加前缀（已含前缀时不重复添加）
+                $tableName = $this->validateIdentifier($table);
+                if ($this->prefix !== '' && strpos($tableName, $this->prefix) !== 0) {
+                    $tableName = $this->prefix . $tableName;
+                }
+            } else {
+                // 未传参：使用当前构建的表名（已含前缀，可能含别名或多表，取第一个表名）
+                $parts = preg_split('/[\s,]+/', trim((string)$this->from));
+                $tableName = $parts[0] ?? '';
+            }
+
             if (empty($tableName)) {
                 return false;
             }
-            
-            // 移除表前缀进行检查，因为SHOW TABLES会显示完整表名
+
             $pdo = $this->getPdo();
             $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
             $stmt->execute([$tableName]);
             return $stmt->rowCount() > 0;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            // PDOException/连接异常等均视为表不可用
             return false;
         }
     }
