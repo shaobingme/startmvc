@@ -73,9 +73,9 @@ class DbCore implements DbInterface
     protected $queryCount = 0;
 
     /**
-     * @var bool 调试模式
+     * @var bool 调试模式（默认关闭，通过数据库配置 debug 项开启）
      */
-    protected $debug = true;
+    protected $debug = false;
 
     /**
      * @var int 事务总数
@@ -102,6 +102,11 @@ class DbCore implements DbInterface
 
     // 设置返回 SQL 标志
     protected $_returnSql = false;
+
+    /**
+     * @var bool 是否允许无WHERE条件的全表更新/删除（危险操作，默认禁止）
+     */
+    protected $allowFullTable = false;
 
     /**
      * @var array SQL查询日志
@@ -134,6 +139,9 @@ class DbCore implements DbInterface
     {
         $this->config = $config;
         $this->prefix = $config['prefix'] ?? ''; // 设置表前缀
+
+        // 调试模式从配置读取，默认关闭（生产环境必须保持关闭，否则SQL错误详情会泄露到页面）
+        $this->debug = !empty($config['debug']);
         
         // 初始化缓存目录
         if (!empty($config['cachedir'])) {
@@ -209,23 +217,14 @@ class DbCore implements DbInterface
      */
     public function table($table)
     {
-        if (is_array($table)) {
-            $from = '';
-            foreach ($table as $key) {
-                $from .= $this->prefix . $key . ', ';
-            }
-            $this->from = rtrim($from, ', ');
-        } else {
-            if (strpos($table, ',') > 0) {
-                $tables = explode(',', $table);
-                foreach ($tables as $key => &$value) {
-                    $value = $this->prefix . ltrim($value);
-                }
-                $this->from = implode(', ', $tables);
-            } else {
-                $this->from = $this->prefix . $table;
-            }
+        $tables = is_array($table) ? $table : explode(',', $table);
+
+        $parts = [];
+        foreach ($tables as $t) {
+            // 逐个校验表名（支持别名），防止表名注入
+            $parts[] = $this->parseTable($t);
         }
+        $this->from = implode(', ', $parts);
 
         return $this;
     }
@@ -353,6 +352,11 @@ class DbCore implements DbInterface
      */
     protected function executeAggregate($function, $field)
     {
+        // 字段名校验（允许 COUNT(*) 的 *），防止聚合字段注入
+        if (trim((string)$field) !== '*') {
+            $field = $this->validateIdentifier($field);
+        }
+
         // 如果设置了返回SQL标志，构建查询并返回SQL
         if ($this->_returnSql) {
             $clone = clone $this;
@@ -396,18 +400,28 @@ class DbCore implements DbInterface
      */
     public function join($table, $field1 = null, $operator = null, $field2 = null, $type = '')
     {
-        $on = $field1;
-        $table = $this->prefix . $table;
+        // JOIN类型白名单，防止拼接注入
+        $type = strtoupper(trim((string)$type));
+        $allowedTypes = ['', 'INNER', 'LEFT', 'RIGHT', 'FULL OUTER', 'LEFT OUTER', 'RIGHT OUTER', 'CROSS'];
+        if (!in_array($type, $allowedTypes, true)) {
+            throw new \InvalidArgumentException('非法的JOIN类型: ' . $type);
+        }
+        $type = $type === '' ? '' : $type . ' ';
 
+        // 表名校验（支持别名）
+        $table = $this->parseTable($table);
+
+        $on = $field1;
         if (!is_null($operator)) {
             $on = !in_array($operator, $this->operators)
-                ? $field1 . ' = ' . $operator . (!is_null($field2) ? ' ' . $field2 : '')
-                : $field1 . ' ' . $operator . ' ' . $field2;
+                // 两参形式时 $operator 是值，必须转义
+                ? $this->validateIdentifier($field1, true) . ' = ' . $this->escape($operator) . (!is_null($field2) ? ' ' . $field2 : '')
+                : $this->validateIdentifier($field1, true) . ' ' . $operator . ' ' . $this->validateIdentifier($field2, true);
         }
 
         $this->join = (is_null($this->join))
-            ? ' ' . $type . ' JOIN' . ' ' . $table . ' ON ' . $on
-            : $this->join . ' ' . $type . ' JOIN' . ' ' . $table . ' ON ' . $on;
+            ? ' ' . $type . 'JOIN' . ' ' . $table . ' ON ' . $on
+            : $this->join . ' ' . $type . 'JOIN' . ' ' . $table . ' ON ' . $on;
 
         return $this;
     }
@@ -522,17 +536,25 @@ class DbCore implements DbInterface
      * @param string|array $operator 操作符或值
      * @param mixed $val 值
      * @param string $logic 逻辑连接符 AND/OR
+     * @param bool $not 是否对条件取反（NOT (...)）
      *
      * @return $this
      */
-    public function where($where, $operator = null, $val = null, $logic = 'AND')
+    public function where($where, $operator = null, $val = null, $logic = 'AND', $not = false)
     {
         if (is_null($where) || (is_string($where) && empty($where))) {
             return $this;
         }
 
+        // 逻辑连接符白名单，防止拼接注入
+        $logic = strtoupper(trim((string)$logic)) === 'OR' ? 'OR' : 'AND';
+
         $condition = $this->parseWhereCondition($where, $operator, $val, $logic);
-        
+
+        if ($not) {
+            $condition = 'NOT (' . $condition . ')';
+        }
+
         if ($this->grouped) {
             $condition = '(' . $condition;
             $this->grouped = false;
@@ -599,7 +621,7 @@ class DbCore implements DbInterface
                 }
             } else {
                 // 关联数组: ['id' => 1, 'status' => 1]
-                $whereParts[] = $key . ' = ' . $this->escape($condition);
+                $whereParts[] = $this->validateIdentifier($key, true) . ' = ' . $this->escape($condition);
             }
         }
         
@@ -642,7 +664,7 @@ class DbCore implements DbInterface
             $fields = explode('|', $where);
             $conditions = [];
             foreach ($fields as $field) {
-                $conditions[] = trim($field) . ' = ' . $this->escape($operator);
+                $conditions[] = $this->validateIdentifier(trim($field), true) . ' = ' . $this->escape($operator);
             }
             return '(' . implode(' OR ', $conditions) . ')';
         }
@@ -652,12 +674,12 @@ class DbCore implements DbInterface
             $fields = explode('&', $where);
             $conditions = [];
             foreach ($fields as $field) {
-                $conditions[] = trim($field) . ' = ' . $this->escape($operator);
+                $conditions[] = $this->validateIdentifier(trim($field), true) . ' = ' . $this->escape($operator);
             }
             return '(' . implode(' AND ', $conditions) . ')';
         }
         
-        return $where . ' = ' . $this->escape($operator);
+        return $this->validateIdentifier($where, true) . ' = ' . $this->escape($operator);
     }
 
     /**
@@ -671,14 +693,24 @@ class DbCore implements DbInterface
     protected function parseStandardWhere($field, $operator, $val)
     {
         // 检查是否是原生SQL条件 (如 'id=10', 'age>18', 'status=1 AND type=2')
+        // 注意: 此为信任入口，严禁直接传入用户输入
         if (is_null($operator) && is_null($val) && $this->isRawSqlCondition($field)) {
             return $field; // 直接返回原生SQL条件
         }
-        
-        // 如果只有两个参数，第二个参数是值
+
+        // 字段名校验，防止标识符注入
+        $field = $this->validateIdentifier($field, true);
+
+        // 如果只有两个参数，第二个参数通常是值；
+        // 但 IS NULL / IS NOT NULL 等特殊运算符例外（修复 where('col','IS NULL') 误作等值判断的问题）
         if (is_null($val)) {
-            $val = $operator;
-            $operator = '=';
+            $specialOps = ['is null', 'isnull', 'is not null', 'isnotnull'];
+            if (is_string($operator) && in_array(strtolower(trim($operator)), $specialOps, true)) {
+                $operator = strtolower(trim($operator));
+            } else {
+                $val = $operator;
+                $operator = '=';
+            }
         }
 
         $operator = strtolower($operator);
@@ -798,7 +830,7 @@ class DbCore implements DbInterface
      */
     public function orWhere($where, $operator = null, $val = null)
     {
-        return $this->where($where, $operator, $val, '', 'OR');
+        return $this->where($where, $operator, $val, 'OR');
     }
 
     /**
@@ -812,7 +844,7 @@ class DbCore implements DbInterface
      */
     public function notWhere($where, $operator = null, $val = null)
     {
-        return $this->where($where, $operator, $val, 'NOT ', 'AND');
+        return $this->where($where, $operator, $val, 'AND', true);
     }
 
     /**
@@ -826,7 +858,7 @@ class DbCore implements DbInterface
      */
     public function orNotWhere($where, $operator = null, $val = null)
     {
-        return $this->where($where, $operator, $val, 'NOT ', 'OR');
+        return $this->where($where, $operator, $val, 'OR', true);
     }
 
     /**
@@ -837,7 +869,7 @@ class DbCore implements DbInterface
      */
     public function whereNull($where, $not = false)
     {
-        $where = $where . ' IS ' . ($not ? 'NOT' : '') . ' NULL';
+        $where = $this->validateIdentifier($where, true) . ' IS ' . ($not ? 'NOT' : '') . ' NULL';
         $this->where = is_null($this->where) ? $where : $this->where . ' ' . 'AND ' . $where;
 
         return $this;
@@ -884,7 +916,7 @@ class DbCore implements DbInterface
             foreach ($keys as $k => $v) {
                 $_keys[] = is_numeric($v) ? $v : $this->escape($v);
             }
-            $where = $field . ' ' . $type . 'IN (' . implode(', ', $_keys) . ')';
+            $where = $this->validateIdentifier($field, true) . ' ' . $type . 'IN (' . implode(', ', $_keys) . ')';
 
             if ($this->grouped) {
                 $where = '(' . $where;
@@ -951,7 +983,7 @@ class DbCore implements DbInterface
     public function findInSet($field, $key, $type = '', $andOr = 'AND')
     {
         $key = is_numeric($key) ? $key : $this->escape($key);
-        $where =  $type . 'FIND_IN_SET (' . $key . ', '.$field.')';
+        $where =  $type . 'FIND_IN_SET (' . $key . ', ' . $this->validateIdentifier($field, true) . ')';
 
         if ($this->grouped) {
             $where = '(' . $where;
@@ -1017,7 +1049,7 @@ class DbCore implements DbInterface
      */
     public function between($field, $value1, $value2, $type = '', $andOr = 'AND')
     {
-        $where = '(' . $field . ' ' . $type . 'BETWEEN ' . ($this->escape($value1) . ' AND ' . $this->escape($value2)) . ')';
+        $where = '(' . $this->validateIdentifier($field, true) . ' ' . $type . 'BETWEEN ' . ($this->escape($value1) . ' AND ' . $this->escape($value2)) . ')';
         if ($this->grouped) {
             $where = '(' . $where;
             $this->grouped = false;
@@ -1085,7 +1117,7 @@ class DbCore implements DbInterface
     public function like($field, $data, $type = '', $andOr = 'AND')
     {
         $like = $this->escape($data);
-        $where = $field . ' ' . $type . 'LIKE ' . $like;
+        $where = $this->validateIdentifier($field, true) . ' ' . $type . 'LIKE ' . $like;
 
         if ($this->grouped) {
             $where = '(' . $where;
@@ -1148,8 +1180,11 @@ class DbCore implements DbInterface
      */
     public function limit($limit, $limitEnd = null)
     {
+        // 强制整型，防止LIMIT子句注入（LIMIT无法使用占位符绑定）
+        $limit = max(0, (int)$limit);
+
         $this->limit = !is_null($limitEnd)
-            ? $limit . ', ' . $limitEnd
+            ? $limit . ', ' . max(0, (int)$limitEnd)
             : $limit;
 
         return $this;
@@ -1164,7 +1199,7 @@ class DbCore implements DbInterface
      */
     public function offset($offset)
     {
-        $this->offset = $offset;
+        $this->offset = max(0, (int)$offset);
 
         return $this;
     }
@@ -1179,8 +1214,12 @@ class DbCore implements DbInterface
      */
     public function page($perPage, $page)
     {
+        // 强制整型并保证下限，防止LIMIT注入与非法分页参数
+        $perPage = max(1, (int)$perPage);
+        $page = max(1, (int)$page);
+
         $this->limit = $perPage;
-        $this->offset = (($page > 0 ? $page : 1) - 1) * $perPage;
+        $this->offset = ($page - 1) * $perPage;
 
         return $this;
     }
@@ -1194,11 +1233,11 @@ class DbCore implements DbInterface
      */
     public function group($groupBy)
     {
-        if (is_array($groupBy)) {
-            $this->groupBy = implode(', ', $groupBy);
-        } else {
-            $this->groupBy = $groupBy;
-        }
+        $items = is_array($groupBy) ? $groupBy : explode(',', $groupBy);
+        $items = array_map(function ($item) {
+            return $this->validateIdentifier(trim($item), true);
+        }, $items);
+        $this->groupBy = implode(', ', $items);
         return $this;
     }
 
@@ -1226,6 +1265,7 @@ class DbCore implements DbInterface
     public function having($field, $operator = null, $val = null)
     {
         if (is_array($operator)) {
+            // 模板绑定模式: $field 为含 ? 占位的模板，由开发者编写，值经转义
             $fields = explode('?', $field);
             $where = '';
             foreach ($fields as $key => $value) {
@@ -1235,9 +1275,10 @@ class DbCore implements DbInterface
             }
             $this->having = $where;
         } elseif (!in_array($operator, $this->operators)) {
-            $this->having = $field . ' > ' . $this->escape($operator);
+            // 两参模式: having('count', 5) 视为 count > 5
+            $this->having = $this->validateIdentifier($field, true) . ' > ' . $this->escape($operator);
         } else {
-            $this->having = $field . ' ' . $operator . ' ' . $this->escape($val);
+            $this->having = $this->validateIdentifier($field, true) . ' ' . $operator . ' ' . $this->escape($val);
         }
 
         return $this;
@@ -1265,23 +1306,30 @@ class DbCore implements DbInterface
 
     /**
      * 显示错误信息
-     * 
+     *
+     * 详细错误写入日志文件，不向页面输出；
+     * 调试模式下异常携带完整SQL便于排查，生产环境脱敏。
+     *
      * @throw PDOException
      */
     public function error()
     {
-        if ($this->debug === true) {
-            if (php_sapi_name() === 'cli') {
-                die("Query: " . $this->query . PHP_EOL . "Error: " . $this->error . PHP_EOL);
-            }
-
-            $msg = '<h1>Database Error</h1>';
-            $msg .= '<h4>Query: <em style="font-weight:normal;">"' . $this->query . '"</em></h4>';
-            $msg .= '<h4>Error: <em style="font-weight:normal;">' . $this->error . '</em></h4>';
-            die($msg);
+        // 详细错误写入日志（含完整SQL），避免泄露给页面访问者
+        try {
+            (new Logger())->error('SQL Error: {error} | Query: {query}', [
+                'error' => (string)$this->error,
+                'query' => (string)$this->query,
+            ]);
+        } catch (\Throwable $e) {
+            // 日志写入失败不影响异常抛出
         }
 
-        throw new PDOException($this->error . '. (' . $this->query . ')');
+        if ($this->debug === true) {
+            throw new PDOException('数据库错误: ' . $this->error . ' | Query: ' . $this->query);
+        }
+
+        // 生产环境：脱敏，防止泄露SQL语句与表结构信息
+        throw new PDOException('数据库操作失败');
     }
 
     /**
@@ -1525,33 +1573,41 @@ class DbCore implements DbInterface
 
         $values = array_values($data);
         if (isset($values[0]) && is_array($values[0])) {
-            $column = implode(', ', array_keys($values[0]));
+            // 批量插入：列名取自数据键名，必须校验防止键名注入
+            $columns = array_map(function ($col) {
+                return $this->validateIdentifier($col);
+            }, array_keys($values[0]));
+            $column = implode(', ', $columns);
             $query .= ' (' . $column . ') VALUES ';
             foreach ($values as $value) {
                 $val = implode(', ', array_map([$this, 'escape'], $value));
                 $query .= '(' . $val . '), ';
             }
             $query = trim($query, ', ');
-            
+
             // 处理ON DUPLICATE KEY UPDATE
             if ($type === 'DUPLICATE') {
                 $query .= ' ON DUPLICATE KEY UPDATE ';
                 $updates = [];
-                foreach (array_keys($values[0]) as $column) {
+                foreach ($columns as $column) {
                     $updates[] = "$column = VALUES($column)";
                 }
                 $query .= implode(', ', $updates);
             }
         } else {
-            $column = implode(', ', array_keys($data));
+            // 单条插入：列名取自数据键名，必须校验防止键名注入
+            $columns = array_map(function ($col) {
+                return $this->validateIdentifier($col);
+            }, array_keys($data));
+            $column = implode(', ', $columns);
             $val = implode(', ', array_map([$this, 'escape'], $data));
             $query .= ' (' . $column . ') VALUES (' . $val . ')';
-            
+
             // 处理ON DUPLICATE KEY UPDATE
             if ($type === 'DUPLICATE') {
                 $query .= ' ON DUPLICATE KEY UPDATE ';
                 $updates = [];
-                foreach (array_keys($data) as $column) {
+                foreach ($columns as $column) {
                     $updates[] = "$column = VALUES($column)";
                 }
                 $query .= implode(', ', $updates);
@@ -1599,11 +1655,17 @@ class DbCore implements DbInterface
         $values = [];
 
         foreach ($data as $column => $val) {
-            $values[] = $column . '=' . $this->escape($val);
+            // 列名取自数据键名，必须校验防止键名注入（如批量赋值场景）
+            $values[] = $this->validateIdentifier($column) . '=' . $this->escape($val);
         }
         $query .= implode(',', $values);
 
-        if (!is_null($this->where)) {
+        // 安全守卫：无WHERE条件的UPDATE会全表更新，必须显式确认
+        if (is_null($this->where)) {
+            if (!$this->allowFullTable) {
+                throw new \RuntimeException('UPDATE 缺少 WHERE 条件，已阻止全表更新。如确需全表更新，请先调用 allowFullTable() 确认。');
+            }
+        } else {
             $query .= ' WHERE ' . $this->where;
         }
 
@@ -1651,7 +1713,13 @@ class DbCore implements DbInterface
     {
         $query = 'DELETE FROM ' . $this->from;
 
-        if (!is_null($this->where)) {
+        // 安全守卫：无WHERE条件的DELETE会全表删除，必须显式确认；
+        // 如需清空整表，请显式使用 truncate() 方法
+        if (is_null($this->where)) {
+            if (!$this->allowFullTable) {
+                throw new \RuntimeException('DELETE 缺少 WHERE 条件，已阻止全表删除。如确需清空数据表，请使用 truncate() 方法，或先调用 allowFullTable() 确认。');
+            }
+        } else {
             $query .= ' WHERE ' . $this->where;
         }
 
@@ -1663,21 +1731,32 @@ class DbCore implements DbInterface
             $query .= ' LIMIT ' . $this->limit;
         }
 
-        if ($query === 'DELETE FROM ' . $this->from) {
-            $query = 'TRUNCATE TABLE ' . $this->from;
-        }
-
         return $query;
     }
 
     /**
      * 获取当前构建的SQL语句而不执行
-     * 
+     *
      * @return $this
      */
     public function getSql()
     {
         $this->_returnSql = true;
+        return $this;
+    }
+
+    /**
+     * 显式允许无WHERE条件的全表更新/删除
+     *
+     * 危险操作：调用后当前这一次 update()/delete() 将允许不带WHERE条件。
+     * 仅对下一次构建生效，执行后自动恢复为禁止状态。
+     *
+     * @param bool $allow 是否允许
+     * @return $this
+     */
+    public function allowFullTable($allow = true)
+    {
+        $this->allowFullTable = $allow;
         return $this;
     }
 
@@ -1782,6 +1861,9 @@ class DbCore implements DbInterface
      */
     public function transaction()
     {
+        // 确保连接已建立（延迟连接设计下pdo可能为null）
+        $this->connect();
+
         if (!$this->transactionCount++) {
             return $this->pdo->beginTransaction();
         }
@@ -1797,6 +1879,8 @@ class DbCore implements DbInterface
      */
     public function commit()
     {
+        $this->connect();
+
         if (!--$this->transactionCount) {
             return $this->pdo->commit();
         }
@@ -1811,6 +1895,8 @@ class DbCore implements DbInterface
      */
     public function rollBack()
     {
+        $this->connect();
+
         if (--$this->transactionCount) {
             $this->pdo->exec('ROLLBACK TO trans' . ($this->transactionCount + 1));
             return true;
@@ -1830,6 +1916,8 @@ class DbCore implements DbInterface
             return null;
         }
 
+        // 确保连接已建立（延迟连接设计下pdo可能为null）
+        $this->connect();
         $query = $this->pdo->exec($this->query);
         if ($query === false) {
             $this->error = $this->pdo->errorInfo()[2];
@@ -1854,6 +1942,8 @@ class DbCore implements DbInterface
             return null;
         }
 
+        // 确保连接已建立（延迟连接设计下pdo可能为null）
+        $this->connect();
         $query = $this->pdo->query($this->query);
         if (!$query) {
             $this->error = $this->pdo->errorInfo()[2];
@@ -2024,38 +2114,108 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 校验SQL标识符（表名/字段名），防止标识符注入
+     *
+     * 允许的形式: field、table.field、`field`、table.*
+     * 可选允许: 别名（field AS alias / field alias）、简单函数形式（MAX(field)、COUNT(*)）
+     *
+     * @param string $identifier 标识符
+     * @param bool $allowFunction 是否允许简单函数形式
+     * @param bool $allowAlias 是否允许别名
+     * @return string 校验通过后原样返回
+     * @throws \InvalidArgumentException 标识符非法时抛出
+     */
+    protected function validateIdentifier($identifier, $allowFunction = false, $allowAlias = false)
+    {
+        $identifier = trim((string)$identifier);
+
+        // 标准标识符: field / table.field / `field` / table.*
+        $standard = '/^`?[A-Za-z_][A-Za-z0-9_]*`?(\.(`?[A-Za-z_][A-Za-z0-9_]*`?|\*))?$/';
+        if (preg_match($standard, $identifier)) {
+            return $identifier;
+        }
+
+        // 别名形式: field AS alias / field alias
+        if ($allowAlias && preg_match('/^(.+?)\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)$/i', $identifier, $m)) {
+            $this->validateIdentifier($m[1], $allowFunction, false);
+            return $identifier;
+        }
+
+        // 简单函数形式: FUNC(field) / FUNC(*) / FUNC('str') / FUNC(123)
+        if ($allowFunction && preg_match('/^[A-Za-z_][A-Za-z0-9_]*\(\s*(\*|`?[A-Za-z_][A-Za-z0-9_]*`?(\.[A-Za-z_][A-Za-z0-9_]*)?|\'[^\']*\'|"[^"]*"|[0-9]+(\.[0-9]+)?)\s*\)$/', $identifier)) {
+            return $identifier;
+        }
+
+        throw new \InvalidArgumentException('非法的SQL标识符: ' . $identifier);
+    }
+
+    /**
+     * 解析表名并附加前缀，支持别名写法（'users u' 或 'users AS u'）
+     *
+     * @param string $table 表名
+     * @return string 带前缀的表名（含别名）
+     */
+    protected function parseTable($table)
+    {
+        $table = trim((string)$table);
+
+        // 支持别名: 'users u' 或 'users AS u'
+        if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)$/i', $table, $m)) {
+            return $this->prefix . $m[1] . ' ' . $m[2];
+        }
+
+        return $this->prefix . $this->validateIdentifier($table);
+    }
+
+    /**
      * 转义字符串
-     * 
+     *
+     * 安全说明：始终使用 PDO::quote（依赖连接的字符集设置），
+     * 不再使用 addslashes 降级方案——后者不感知连接编码，
+     * 在 GBK 等多字节字符集下存在宽字节注入风险。
+     *
      * @param $data 要转义的数据
      *
-     * @return string
+     * @return string|int
      */
     public function escape($data)
     {
         if ($data === null) {
             return 'NULL';
         }
-        
-        if (is_int($data) || is_float($data)) {
+
+        if (is_int($data)) {
             return $data;
         }
-        
+
+        if (is_float($data)) {
+            // NAN/INF 直接拼接会产生非法SQL，拒绝
+            if (!is_finite($data)) {
+                throw new \InvalidArgumentException('非法的浮点数值（NAN/INF）');
+            }
+            return $data;
+        }
+
         if (is_bool($data)) {
             return $data ? 1 : 0;
         }
-        
+
         // 如果是数组或对象，转换为JSON字符串
         if (is_array($data) || is_object($data)) {
             $data = json_encode($data);
         }
-        
-        // 如果PDO连接存在，使用PDO的quote方法
-        if ($this->pdo !== null) {
-            return $this->pdo->quote($data);
+
+        // quote 依赖连接的字符集设置，必须确保连接存在
+        if ($this->pdo === null) {
+            $this->connect();
         }
-        
-        // 如果没有PDO连接，使用简单的转义（主要用于SQL生成）
-        return "'" . addslashes($data) . "'";
+
+        $quoted = $this->pdo->quote((string)$data);
+        if ($quoted === false) {
+            throw new \RuntimeException('数据转义失败，请检查字符编码是否与数据库连接字符集一致');
+        }
+
+        return $quoted;
     }
 
     /**
@@ -2147,6 +2307,7 @@ class DbCore implements DbInterface
         $this->join = null;
         $this->grouped = false;
         $this->joinNodes = []; // 重置子节点查询配置
+        $this->allowFullTable = false; // 全表操作确认仅对当次生效
         // 注意：不重置 numRows, insertId, query, error, result，这些是查询结果状态
     }
 
@@ -2233,7 +2394,7 @@ class DbCore implements DbInterface
      */
     public function value($column)
     {
-        $this->select($column);
+        $this->select($this->validateIdentifier($column, true));
         $result = $this->first();
         if ($result && is_array($result) && isset($result[$column])) {
             return $result[$column];
@@ -2249,32 +2410,34 @@ class DbCore implements DbInterface
      */
     public function column($column, $key = null)
     {
+        $this->validateIdentifier($column, true);
         if (!is_null($key)) {
             // 如果提供了$key参数，选择两个字段并构建关联数组
-            $this->select(implode(', ', [$key, $column]));
+            $this->select(implode(', ', [$this->validateIdentifier($key, true), $column]));
             $result = $this->get();
-            
+
             if (is_array($result)) {
                 // 使用array_column构建键值对数组
                 return array_column($result, $column, $key);
             }
-            
+
             return $result;
         } else {
             // 如果只提供了$column参数，直接使用PDO::FETCH_COLUMN获取结果
             $this->select($column);
-            
+
             // 重置查询以便直接执行
             $query = $this->buildSelectQuery();
             $this->reset();
             $this->query = $query;
-            
-            // 直接使用PDO获取列数据
+
+            // 确保连接已建立（延迟连接设计下pdo可能为null）
+            $this->connect();
             $stmt = $this->pdo->query($this->query);
             if ($stmt) {
                 return $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
             }
-            
+
             return [];
         }
     }
@@ -2312,6 +2475,7 @@ class DbCore implements DbInterface
      */
     public function invert($column)
     {
+        $column = $this->validateIdentifier($column);
         $query = "UPDATE {$this->from} SET {$column} = !{$column}";
         
         if (!is_null($this->where)) {
@@ -2374,6 +2538,7 @@ class DbCore implements DbInterface
      */
     public function inc($column, int $count = 1)
     {
+        $column = $this->validateIdentifier($column);
         $query = "UPDATE {$this->from} SET {$column} = {$column} + {$count}";
         
         if (!is_null($this->where)) {
@@ -2402,6 +2567,7 @@ class DbCore implements DbInterface
      */
     public function dec($column, int $count = 1)
     {
+        $column = $this->validateIdentifier($column);
         $query = "UPDATE {$this->from} SET {$column} = {$column} - {$count}";
         
         if (!is_null($this->where)) {
@@ -2434,13 +2600,15 @@ class DbCore implements DbInterface
         if (is_null($this->join)) {
             return $this;
         }
-        
+
+        // 校验节点别名，防止注入
+        $alias = $this->validateIdentifier($alias);
         $this->joinNodes[] = $alias;
 
-        // 构建字段列表
+        // 构建字段列表（注意：循环变量不能用$alias，会覆盖节点别名）
         $fieldList = [];
-        foreach ($columns as $alias => $field) {
-            $fieldList[] = "{$field} AS {$alias}";
+        foreach ($columns as $colAlias => $field) {
+            $fieldList[] = $this->validateIdentifier($field, true) . ' AS ' . $this->validateIdentifier($colAlias);
         }
 
         // 使用子查询构建嵌套数据
@@ -2498,19 +2666,29 @@ class DbCore implements DbInterface
      */
     public function order($columns, $order = 'ASC')
     {
+        // 排序方向白名单，防止方向位注入
+        $order = strtoupper(trim((string)$order));
+        if (!in_array($order, ['ASC', 'DESC'], true)) {
+            throw new \InvalidArgumentException('非法的排序方向: ' . $order);
+        }
+
         if (is_array($columns)) {
-            $this->orderBy = implode(', ', array_map(function($column) use ($order) {
-                return "{$column} {$order}";
+            $this->orderBy = implode(', ', array_map(function ($column) use ($order) {
+                return $this->validateIdentifier($column, true) . " {$order}";
             }, $columns));
         } else {
+            $columns = trim((string)$columns);
             // 处理特殊情况如RAND()
             if (strtolower($columns) === 'rand()') {
                 $this->orderBy = $columns;
-            } else if (stristr($columns, ' ')) {
-                // 如果已经包含空格，可能已经指定了排序方向
-                $this->orderBy = $columns;
+            } elseif (preg_match('/^(.+?)\s+(ASC|DESC)$/i', $columns, $m)) {
+                // 已包含排序方向: 拆分后分别校验
+                $this->orderBy = $this->validateIdentifier($m[1], true) . ' ' . strtoupper($m[2]);
+            } elseif (strpos($columns, ' ') !== false) {
+                // 包含空格但方向非法，拒绝（原逻辑会直接放行，存在注入风险）
+                throw new \InvalidArgumentException('非法的排序字段: ' . $columns);
             } else {
-                $this->orderBy = "{$columns} {$order}";
+                $this->orderBy = $this->validateIdentifier($columns, true) . " {$order}";
             }
         }
         return $this;
