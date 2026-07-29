@@ -195,17 +195,93 @@ class DbCore implements DbInterface
         }
 
         try {
-            $dsn = "{$this->config['driver']}:host={$this->config['host']};port={$this->config['port']};dbname={$this->config['database']};charset={$this->config['charset']}";
-            $this->pdo = new PDO($dsn, $this->config['username'], $this->config['password'], [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false,
-            ]);
+            $this->pdo = new PDO(
+                $this->buildDsn(),
+                $this->config['username'] ?? null,
+                $this->config['password'] ?? null,
+                $this->buildPdoOptions()
+            );
             $this->connected = true;
             return $this->pdo;
         } catch (PDOException $e) {
-            throw new \Exception('数据库连接失败：' . $e->getMessage());
+            // PDO异常消息可能携带 host/库名/用户名等敏感信息：
+            // 详情写入日志，对外抛出的消息生产环境脱敏
+            try {
+                (new Logger())->error('数据库连接失败: {msg}', ['msg' => $e->getMessage()]);
+            } catch (\Throwable $t) {
+                // 日志写入失败不影响异常抛出
+            }
+
+            if ($this->debug) {
+                throw new \Exception('数据库连接失败：' . $e->getMessage());
+            }
+            throw new \Exception('数据库连接失败，请检查数据库配置或服务状态');
         }
+    }
+
+    /**
+     * 按驱动类型构建 DSN
+     *
+     * @return string
+     */
+    protected function buildDsn()
+    {
+        $driver = $this->config['driver'] ?? 'mysql';
+
+        switch ($driver) {
+            case 'sqlite':
+                // sqlite 只需文件路径，database 配置项即为文件路径
+                return 'sqlite:' . $this->config['database'];
+
+            case 'pgsql':
+                $dsn = "pgsql:host={$this->config['host']};dbname={$this->config['database']}";
+                if (!empty($this->config['port'])) {
+                    $dsn .= ";port={$this->config['port']}";
+                }
+                return $dsn;
+
+            case 'oracle':
+            case 'oci':
+                return "oci:dbname={$this->config['host']}/{$this->config['database']}"
+                    . (!empty($this->config['charset']) ? ";charset={$this->config['charset']}" : '');
+
+            case 'mysql':
+            default:
+                $dsn = "mysql:host={$this->config['host']};dbname={$this->config['database']}";
+                if (!empty($this->config['port'])) {
+                    $dsn .= ";port={$this->config['port']}";
+                }
+                if (!empty($this->config['charset'])) {
+                    $dsn .= ";charset={$this->config['charset']}";
+                }
+                return $dsn;
+        }
+    }
+
+    /**
+     * 构建 PDO 连接选项
+     *
+     * 框架安全默认值 + 配置 options 合并（配置优先），
+     * 可用于传入 SSL 证书等选项，例如 MySQL：
+     * 'options' => [PDO::MYSQL_ATTR_SSL_CA => '/path/ca.pem', PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => true]
+     *
+     * @return array
+     */
+    protected function buildPdoOptions()
+    {
+        $defaults = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false, // 原生预处理（安全基线，不建议覆盖）
+        ];
+
+        $options = $this->config['options'] ?? [];
+        if (!is_array($options)) {
+            throw new \InvalidArgumentException('数据库配置 options 必须是数组');
+        }
+
+        // 并集运算：用户配置的键优先，未配置的用框架默认值
+        return $options + $defaults;
     }
 
     /**
@@ -529,7 +605,7 @@ class DbCore implements DbInterface
      * WHERE条件查询 - 支持多种灵活写法
      * 
      * 支持的用法：
-     * where('id', 1)                           // id = 1
+     * where('id', 1)                           // id = 1（值自动绑定）
      * where('id', '>', 1)                      // id > 1
      * where('id', 'in', [1,2,3])              // id IN (1,2,3)
      * where('name', 'like', '%admin%')         // name LIKE '%admin%'
@@ -540,7 +616,11 @@ class DbCore implements DbInterface
      * where('id=? AND status=?', [1, 1])      // 参数绑定
      * where(['id' => 1, 'status' => 1])       // 数组条件
      * where([['id', '>', 1], ['name', 'like', '%admin%']]) // 复杂数组
-     * 
+     * where('id=1 AND status=2')              // 原生条件直通（信任入口，禁止传用户输入，推荐用 whereRaw()）
+     * where('active')                         // 真值条件 WHERE active（单字段名）
+     *
+     * 注意: 判断字段为 NULL 请用 where('field', 'IS NULL') 或 whereNull()
+     *
      * @param array|string $where 条件
      * @param string|array $operator 操作符或值
      * @param mixed $val 值
@@ -695,10 +775,16 @@ class DbCore implements DbInterface
      */
     protected function parseStandardWhere($field, $operator, $val)
     {
-        // 检查是否是原生SQL条件 (如 'id=10', 'age>18', 'status=1 AND type=2')
-        // 注意: 此为信任入口，严禁直接传入用户输入
-        if (is_null($operator) && is_null($val) && $this->isRawSqlCondition($field)) {
-            return $field; // 直接返回原生SQL条件
+        // 单参数调用（无操作符与值）
+        if (is_null($operator) && is_null($val)) {
+            // 原生SQL条件直通（收紧后的单词边界检测）：
+            // 此为信任入口，严禁传入用户输入，推荐显式使用 whereRaw() 表明意图
+            if ($this->isRawSqlCondition($field)) {
+                return $field;
+            }
+            // 单个字段名：视为真值条件 WHERE field（经标识符校验，安全）；
+            // 同时修复旧版把含 in/like 子串的字段名（如 login）误判为原生SQL的问题
+            return $this->validateIdentifier($field, true);
         }
 
         // 字段名校验，防止标识符注入
@@ -807,34 +893,83 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 检查是否是原生SQL条件
-     * 
+     * 检查是否是原生SQL条件（收紧版：单词边界匹配）
+     *
+     * 旧版用子串匹配，字段名含 in/like 子串会被误判
+     * （如 login 含 "IN"、singer 含 "IN"、likewise 含 "LIKE"）。
+     *
      * @param string $condition 条件字符串
      * @return bool
      */
     protected function isRawSqlCondition($condition)
     {
-        // 检查是否包含SQL操作符
-        $sqlOperators = ['=', '>', '<', '>=', '<=', '<>', '!=', 'LIKE', 'IN', 'BETWEEN', 'IS NULL', 'IS NOT NULL'];
-        $condition = strtoupper($condition);
-        
-        foreach ($sqlOperators as $operator) {
-            if (strpos($condition, $operator) !== false) {
-                return true;
-            }
+        $condition = trim((string)$condition);
+        if ($condition === '') {
+            return false;
         }
-        
-        // 检查是否包含AND/OR逻辑操作符
-        if (strpos($condition, ' AND ') !== false || strpos($condition, ' OR ') !== false) {
+
+        // 比较操作符: = > < >= <= <> !=
+        if (preg_match('/[=<>]|!=/', $condition)) {
             return true;
         }
-        
+
+        // SQL关键字必须以完整单词出现（\b 单词边界，避免 login/singer 之类误判）
+        if (preg_match('/\b(LIKE|IN|BETWEEN|IS\s+NULL|IS\s+NOT\s+NULL|REGEXP|RLIKE|AND|OR|NOT|EXISTS)\b/i', $condition)) {
+            return true;
+        }
+
         return false;
     }
 
     /**
+     * 原生WHERE条件（显式信任入口）
+     *
+     * 直接拼接SQL片段，不做转义与校验，适用于复杂表达式、子查询、函数调用等场景。
+     * 安全警告：严禁传入用户输入！用户数据请使用 where()/where('field=?', [$v]) 绑定。
+     *
+     * 用法: whereRaw('FIND_IN_SET(?, tag_ids)', ... ) 不支持占位符，
+     *       需要绑定时请用 where('FIND_IN_SET(?, tag_ids)', [6]) 模板模式
+     *
+     * @param string $condition 原生SQL条件片段
+     * @param string $logic 逻辑连接符 AND/OR
+     * @return $this
+     */
+    public function whereRaw($condition, $logic = 'AND')
+    {
+        $condition = trim((string)$condition);
+        if ($condition === '') {
+            return $this;
+        }
+
+        // 逻辑连接符白名单
+        $logic = strtoupper(trim((string)$logic)) === 'OR' ? 'OR' : 'AND';
+
+        if ($this->grouped) {
+            $condition = '(' . $condition;
+            $this->grouped = false;
+        }
+
+        $this->where = is_null($this->where)
+            ? $condition
+            : $this->where . ' ' . $logic . ' ' . $condition;
+
+        return $this;
+    }
+
+    /**
+     * 原生WHERE条件（OR 连接）
+     *
+     * @param string $condition 原生SQL条件片段
+     * @return $this
+     */
+    public function orWhereRaw($condition)
+    {
+        return $this->whereRaw($condition, 'OR');
+    }
+
+    /**
      * OR WHERE条件查询
-     * 
+     *
      * @param array|string $where 条件
      * @param string|null  $operator 操作符
      * @param string|null  $val 值
