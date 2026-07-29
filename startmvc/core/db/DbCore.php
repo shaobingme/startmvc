@@ -104,6 +104,11 @@ class DbCore implements DbInterface
     protected $_returnSql = false;
 
     /**
+     * @var array 预处理绑定参数（与SQL中的 ? 占位符按序对应）
+     */
+    protected $bindings = [];
+
+    /**
      * @var bool 是否允许无WHERE条件的全表更新/删除（危险操作，默认禁止）
      */
     protected $allowFullTable = false;
@@ -361,13 +366,13 @@ class DbCore implements DbInterface
             $field = $this->validateIdentifier($field);
         }
 
-        // 如果设置了返回SQL标志，构建查询并返回SQL
+        // 如果设置了返回SQL标志，构建查询并返回插值后的可读SQL
         if ($this->_returnSql) {
             $clone = clone $this;
             $clone->select = $function . '(' . $field . ') as aggregate_value';
             $query = $clone->buildSelectQuery();
             $this->_returnSql = false;
-            return $query;
+            return $clone->interpolateQuery($query);
         }
         
         // 克隆当前查询构建器，避免污染原对象
@@ -625,7 +630,7 @@ class DbCore implements DbInterface
                 }
             } else {
                 // 关联数组: ['id' => 1, 'status' => 1]
-                $whereParts[] = $this->validateIdentifier($key, true) . ' = ' . $this->escape($condition);
+                $whereParts[] = $this->validateIdentifier($key, true) . ' = ' . $this->bind($condition);
             }
         }
         
@@ -634,24 +639,18 @@ class DbCore implements DbInterface
 
     /**
      * 解析参数绑定WHERE条件
-     * 
+     *
+     * 真预处理下模板原样保留（含 ? 占位符），参数直接收集绑定，
+     * 不再做字符串拆分替换——彻底避免模板字面量含 ? 导致参数错位的问题。
+     *
      * @param string $where SQL模板
      * @param array $params 参数数组
      * @return string
      */
     protected function parseBindWhere($where, $params)
     {
-        $parts = explode('?', $where);
-        $result = '';
-        
-        foreach ($parts as $key => $part) {
-            $result .= $part;
-            if (isset($params[$key])) {
-                $result .= $this->escape($params[$key]);
-            }
-        }
-        
-        return $result;
+        $this->mergeBindings(array_values($params));
+        return $where;
     }
 
     /**
@@ -668,22 +667,22 @@ class DbCore implements DbInterface
             $fields = explode('|', $where);
             $conditions = [];
             foreach ($fields as $field) {
-                $conditions[] = $this->validateIdentifier(trim($field), true) . ' = ' . $this->escape($operator);
+                $conditions[] = $this->validateIdentifier(trim($field), true) . ' = ' . $this->bind($operator);
             }
             return '(' . implode(' OR ', $conditions) . ')';
         }
-        
+
         if (strpos($where, '&') !== false) {
             // AND条件: id&status
             $fields = explode('&', $where);
             $conditions = [];
             foreach ($fields as $field) {
-                $conditions[] = $this->validateIdentifier(trim($field), true) . ' = ' . $this->escape($operator);
+                $conditions[] = $this->validateIdentifier(trim($field), true) . ' = ' . $this->bind($operator);
             }
             return '(' . implode(' AND ', $conditions) . ')';
         }
-        
-        return $this->validateIdentifier($where, true) . ' = ' . $this->escape($operator);
+
+        return $this->validateIdentifier($where, true) . ' = ' . $this->bind($operator);
     }
 
     /**
@@ -730,11 +729,11 @@ class DbCore implements DbInterface
                 
             case 'like':
             case 'not like':
-                return $field . ' ' . strtoupper($operator) . ' ' . $this->escape($val);
-                
+                return $field . ' ' . strtoupper($operator) . ' ' . $this->bind($val);
+
             case 'find_in_set':
-                return 'FIND_IN_SET(' . $this->escape($val) . ', ' . $field . ')';
-                
+                return 'FIND_IN_SET(' . $this->bind($val) . ', ' . $field . ')';
+
             case 'is null':
             case 'isnull':
                 return $field . ' IS NULL';
@@ -746,12 +745,12 @@ class DbCore implements DbInterface
             case 'regexp':
             case 'not regexp':
             case 'rlike':
-                return $field . ' ' . strtoupper($operator) . ' ' . $this->escape($val);
+                return $field . ' ' . strtoupper($operator) . ' ' . $this->bind($val);
 
             default:
                 // 标准操作符: =, >, <, >=, <=, <>, !=
                 if (in_array($operator, ['=', '>', '<', '>=', '<=', '<>', '!='], true)) {
-                    return $field . ' ' . $operator . ' ' . $this->escape($val);
+                    return $field . ' ' . $operator . ' ' . $this->bind($val);
                 }
                 // 未知操作符直接抛错，fail-fast：
                 // 原逻辑会把操作符当值、静默丢弃$val（如 where('name','regexp','^a') 变成 name='regexp'），
@@ -762,7 +761,7 @@ class DbCore implements DbInterface
 
     /**
      * 构建IN条件
-     * 
+     *
      * @param string $field 字段名
      * @param mixed $val 值
      * @param string $operator 操作符
@@ -773,13 +772,16 @@ class DbCore implements DbInterface
         if (is_string($val)) {
             $val = explode(',', $val);
         }
-        
+
         if (!is_array($val)) {
             $val = [$val];
         }
-        
-        $values = array_map([$this, 'escape'], $val);
-        return $field . ' ' . strtoupper($operator) . ' (' . implode(', ', $values) . ')';
+
+        $placeholders = [];
+        foreach ($val as $v) {
+            $placeholders[] = $this->bind($v);
+        }
+        return $field . ' ' . strtoupper($operator) . ' (' . implode(', ', $placeholders) . ')';
     }
 
     /**
@@ -800,8 +802,8 @@ class DbCore implements DbInterface
             throw new \InvalidArgumentException('BETWEEN条件需要两个值');
         }
         
-        return $field . ' ' . strtoupper($operator) . ' ' . 
-               $this->escape($val[0]) . ' AND ' . $this->escape($val[1]);
+        return $field . ' ' . strtoupper($operator) . ' ' .
+               $this->bind($val[0]) . ' AND ' . $this->bind($val[1]);
     }
 
     /**
@@ -925,7 +927,7 @@ class DbCore implements DbInterface
         if (is_array($keys)) {
             $_keys = [];
             foreach ($keys as $k => $v) {
-                $_keys[] = is_numeric($v) ? $v : $this->escape($v);
+                $_keys[] = $this->bind($v);
             }
             $where = $this->validateIdentifier($field, true) . ' ' . $type . 'IN (' . implode(', ', $_keys) . ')';
 
@@ -993,8 +995,7 @@ class DbCore implements DbInterface
      */
     public function findInSet($field, $key, $type = '', $andOr = 'AND')
     {
-        $key = is_numeric($key) ? $key : $this->escape($key);
-        $where =  $type . 'FIND_IN_SET (' . $key . ', ' . $this->validateIdentifier($field, true) . ')';
+        $where =  $type . 'FIND_IN_SET (' . $this->bind($key) . ', ' . $this->validateIdentifier($field, true) . ')';
 
         if ($this->grouped) {
             $where = '(' . $where;
@@ -1060,7 +1061,7 @@ class DbCore implements DbInterface
      */
     public function between($field, $value1, $value2, $type = '', $andOr = 'AND')
     {
-        $where = '(' . $this->validateIdentifier($field, true) . ' ' . $type . 'BETWEEN ' . ($this->escape($value1) . ' AND ' . $this->escape($value2)) . ')';
+        $where = '(' . $this->validateIdentifier($field, true) . ' ' . $type . 'BETWEEN ' . ($this->bind($value1) . ' AND ' . $this->bind($value2)) . ')';
         if ($this->grouped) {
             $where = '(' . $where;
             $this->grouped = false;
@@ -1127,8 +1128,7 @@ class DbCore implements DbInterface
      */
     public function like($field, $data, $type = '', $andOr = 'AND')
     {
-        $like = $this->escape($data);
-        $where = $this->validateIdentifier($field, true) . ' ' . $type . 'LIKE ' . $like;
+        $where = $this->validateIdentifier($field, true) . ' ' . $type . 'LIKE ' . $this->bind($data);
 
         if ($this->grouped) {
             $where = '(' . $where;
@@ -1276,20 +1276,14 @@ class DbCore implements DbInterface
     public function having($field, $operator = null, $val = null)
     {
         if (is_array($operator)) {
-            // 模板绑定模式: $field 为含 ? 占位的模板，由开发者编写，值经转义
-            $fields = explode('?', $field);
-            $where = '';
-            foreach ($fields as $key => $value) {
-                if (!empty($value)) {
-                    $where .= $value . (isset($operator[$key]) ? $this->escape($operator[$key]) : '');
-                }
-            }
-            $this->having = $where;
+            // 模板绑定模式: $field 为含 ? 占位的模板，参数直接收集绑定（真预处理，不再拆分替换）
+            $this->mergeBindings(array_values($operator));
+            $this->having = $field;
         } elseif (!in_array($operator, $this->operators)) {
             // 两参模式: having('count', 5) 视为 count > 5
-            $this->having = $this->validateIdentifier($field, true) . ' > ' . $this->escape($operator);
+            $this->having = $this->validateIdentifier($field, true) . ' > ' . $this->bind($operator);
         } else {
-            $this->having = $this->validateIdentifier($field, true) . ' ' . $operator . ' ' . $this->escape($val);
+            $this->having = $this->validateIdentifier($field, true) . ' ' . $operator . ' ' . $this->bind($val);
         }
 
         return $this;
@@ -1325,18 +1319,25 @@ class DbCore implements DbInterface
      */
     public function error()
     {
+        // 插值还原可读SQL用于日志与调试（失败时退化为占位符形式）
+        try {
+            $displayQuery = $this->interpolateQuery();
+        } catch (\Throwable $e) {
+            $displayQuery = (string)$this->query;
+        }
+
         // 详细错误写入日志（含完整SQL），避免泄露给页面访问者
         try {
             (new Logger())->error('SQL Error: {error} | Query: {query}', [
                 'error' => (string)$this->error,
-                'query' => (string)$this->query,
+                'query' => $displayQuery,
             ]);
         } catch (\Throwable $e) {
             // 日志写入失败不影响异常抛出
         }
 
         if ($this->debug === true) {
-            throw new PDOException('数据库错误: ' . $this->error . ' | Query: ' . $this->query);
+            throw new PDOException('数据库错误: ' . $this->error . ' | Query: ' . $displayQuery);
         }
 
         // 生产环境：脱敏，防止泄露SQL语句与表结构信息
@@ -1354,17 +1355,18 @@ class DbCore implements DbInterface
     public function get($returnSql = null, $argument = null)
     {
         $query = $this->buildSelectQuery();
-        
-        // 存储查询，用于getSql方法
-        $this->_lastQuery = $query;
+
+        // 存储查询（插值后的可读SQL），用于getSql方法
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'select';
-        
+
         if ($returnSql === true || $this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
-        
+
         return $this->query($query, true, $returnSql, $argument);
     }
 
@@ -1381,16 +1383,17 @@ class DbCore implements DbInterface
         $this->limit(1);
         $query = $this->buildSelectQuery();
 
-        // 存储查询，用于getSql方法
-        $this->_lastQuery = $query;
+        // 存储查询（插值后的可读SQL），用于getSql方法
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'select';
-        
+
         if ($returnSql === true || $this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
-        
+
         return $this->query($query, false, $returnSql, $argument);
     }
 
@@ -1533,19 +1536,20 @@ class DbCore implements DbInterface
     public function insert(array $data, $returnSql = false, $type = 'INSERT')
     {
         $query = $this->buildInsertQuery($data, $type);
-        
-        // 存储插入数据和查询，用于getSql方法
+
+        // 存储插入数据和查询（插值后的可读SQL），用于getSql方法
         $this->_insertData = $data;
-        $this->_lastQuery = $query;
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = strtolower(explode(' ', $type)[0]); // insert, replace, etc.
 
         if ($returnSql === true || $this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
 
-        if ($this->query($query, false)) {
+        if ($this->query($query, false) !== false) {
             $this->insertId = $this->pdo->lastInsertId();
             return $this->insertId();
         }
@@ -1591,8 +1595,11 @@ class DbCore implements DbInterface
             $column = implode(', ', $columns);
             $query .= ' (' . $column . ') VALUES ';
             foreach ($values as $value) {
-                $val = implode(', ', array_map([$this, 'escape'], $value));
-                $query .= '(' . $val . '), ';
+                $placeholders = [];
+                foreach ($value as $v) {
+                    $placeholders[] = $this->bind($v);
+                }
+                $query .= '(' . implode(', ', $placeholders) . '), ';
             }
             $query = trim($query, ', ');
 
@@ -1611,8 +1618,11 @@ class DbCore implements DbInterface
                 return $this->validateIdentifier($col);
             }, array_keys($data));
             $column = implode(', ', $columns);
-            $val = implode(', ', array_map([$this, 'escape'], $data));
-            $query .= ' (' . $column . ') VALUES (' . $val . ')';
+            $placeholders = [];
+            foreach ($data as $v) {
+                $placeholders[] = $this->bind($v);
+            }
+            $query .= ' (' . $column . ') VALUES (' . implode(', ', $placeholders) . ')';
 
             // 处理ON DUPLICATE KEY UPDATE
             if ($type === 'DUPLICATE') {
@@ -1639,18 +1649,19 @@ class DbCore implements DbInterface
     public function update(array $data, $returnSql = false)
     {
         $query = $this->buildUpdateQuery($data);
-        
-        // 存储更新数据和查询，用于getSql方法
+
+        // 存储更新数据和查询（插值后的可读SQL），用于getSql方法
         $this->_updateData = $data;
-        $this->_lastQuery = $query;
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-        
+
         if ($returnSql === true || $this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
-        
+
         return $this->query($query, false);
     }
 
@@ -1663,13 +1674,21 @@ class DbCore implements DbInterface
     protected function buildUpdateQuery(array $data)
     {
         $query = 'UPDATE ' . $this->from . ' SET ';
-        $values = [];
 
+        // SET子句的占位符在SQL文本中先于WHERE出现，但WHERE的绑定先于SET收集，
+        // 因此先暂存WHERE绑定，待SET绑定完成后按SQL文本顺序合并
+        $whereBindings = $this->bindings;
+        $this->bindings = [];
+
+        $values = [];
         foreach ($data as $column => $val) {
             // 列名取自数据键名，必须校验防止键名注入（如批量赋值场景）
-            $values[] = $this->validateIdentifier($column) . '=' . $this->escape($val);
+            $values[] = $this->validateIdentifier($column) . '=' . $this->bind($val);
         }
         $query .= implode(',', $values);
+
+        // 按SQL文本顺序合并：SET绑定在前，WHERE绑定在后
+        $this->bindings = array_merge($this->bindings, $whereBindings);
 
         // 安全守卫：无WHERE条件的UPDATE会全表更新，必须显式确认
         if (is_null($this->where)) {
@@ -1701,17 +1720,18 @@ class DbCore implements DbInterface
     public function delete($returnSql = false)
     {
         $query = $this->buildDeleteQuery();
-        
-        // 存储查询，用于getSql方法
-        $this->_lastQuery = $query;
+
+        // 存储查询（插值后的可读SQL），用于getSql方法
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'delete';
-        
+
         if ($returnSql === true || $this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
-        
+
         return $this->query($query, false);
     }
 
@@ -1940,13 +1960,16 @@ class DbCore implements DbInterface
 
         // 确保连接已建立（延迟连接设计下pdo可能为null）
         $this->connect();
-        $query = $this->pdo->exec($this->query);
-        if ($query === false) {
-            $this->error = $this->pdo->errorInfo()[2];
+
+        try {
+            $stmt = $this->pdo->prepare($this->query);
+            $this->bindValues($stmt);
+            $stmt->execute();
+            return $stmt->rowCount();
+        } catch (PDOException $e) {
+            $this->error = $e->getMessage();
             $this->error();
         }
-
-        return $query;
     }
 
     /**
@@ -1966,21 +1989,25 @@ class DbCore implements DbInterface
 
         // 确保连接已建立（延迟连接设计下pdo可能为null）
         $this->connect();
-        $query = $this->pdo->query($this->query);
-        if (!$query) {
-            $this->error = $this->pdo->errorInfo()[2];
+
+        try {
+            $stmt = $this->pdo->prepare($this->query);
+            $this->bindValues($stmt);
+            $stmt->execute();
+        } catch (PDOException $e) {
+            $this->error = $e->getMessage();
             $this->error();
         }
 
         $type = $this->getFetchType($type);
         if ($type === PDO::FETCH_CLASS) {
-            $query->setFetchMode($type, $argument);
+            $stmt->setFetchMode($type, $argument);
         } else {
-            $query->setFetchMode($type);
+            $stmt->setFetchMode($type);
         }
 
-        $result = $all ? $query->fetchAll() : $query->fetch();
-        $this->numRows = is_array($result) ? count($result) : 1;
+        $result = $all ? $stmt->fetchAll() : $stmt->fetch();
+        $this->numRows = is_array($result) ? count($result) : ($result === false ? 0 : 1);
         return $result;
     }
 
@@ -2013,60 +2040,78 @@ class DbCore implements DbInterface
         if ($this->pdo === null) {
             $this->connect();
         }
-        
+
         // 初始化查询相关的属性
         $this->query = null;
         $this->error = null;
         $this->result = [];
         $this->numRows = 0;
-        
+
         // 记录SQL开始执行时间
         $startTime = microtime(true);
-        $params = [];
 
+        // 模式一：原始SQL + 绑定参数（仅保存语句与参数，配合 exec()/fetch() 执行）
+        // 例: query('SELECT * FROM users WHERE id=?', [1])->fetch()
         if (is_array($all) || func_num_args() === 1) {
-            $params = explode('?', $query);
-            $newQuery = '';
-            foreach ($params as $key => $value) {
-                if (!empty($value)) {
-                    $newQuery .= $value . (isset($all[$key]) ? $this->escape($all[$key]) : '');
-                }
+            $this->query = $query;
+            if (is_array($all)) {
+                $this->bindings = array_values($all);
             }
-            $this->query = $newQuery;
-            
-            // 结束计时并记录日志
-            $executionTime = microtime(true) - $startTime;
-            self::logSql($this->query, is_array($all) ? $all : [], $executionTime);
-            
+            self::logSql($this->interpolateQuery($query, $this->bindings), $this->bindings, microtime(true) - $startTime);
             return $this;
         }
 
+        // 模式二：执行构建器生成的SQL（真预处理）
         $this->query = preg_replace('/\s\s+|\t\t+/', ' ', trim($query));
-        $str = false;
-        foreach (['select', 'optimize', 'check', 'repair', 'checksum', 'analyze'] as $value) {
+
+        // 判断是否为返回结果集的语句
+        $isSelect = false;
+        foreach (['select', 'show', 'describe', 'desc', 'explain', 'optimize', 'check', 'repair', 'checksum', 'analyze'] as $value) {
             if (stripos($this->query, $value) === 0) {
-                $str = true;
+                $isSelect = true;
                 break;
             }
         }
 
         $type = $this->getFetchType($type);
+
+        // 查询缓存：key 必须包含绑定参数，否则不同参数会命中同一缓存
+        $cacheKey = $this->query . '|' . serialize($this->bindings);
         $cache = false;
-        if (!is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
-            // 查询缓存时，设置默认返回关联数组
-            $cache = $this->cache->getCache($this->query, true);
+        if ($isSelect && !is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
+            $cache = $this->cache->getCache($cacheKey, true);
         }
 
-        if (!$cache && $str) {
-            $sql = $this->pdo->query($this->query);
-            if ($sql) {
+        if ($cache !== false && $cache !== null) {
+            // 缓存命中
+            $this->result = $cache;
+            $this->numRows = is_array($this->result) ? count($this->result) : ($this->result === '' ? 0 : 1);
+
+            $currentJoinNodes = $this->joinNodes;
+            if (!empty($currentJoinNodes) && is_array($this->result)) {
+                $this->result = $this->nodeParser($this->result);
+            }
+        } else {
+            // 真预处理执行
+            try {
+                $stmt = $this->pdo->prepare($this->query);
+                $this->bindValues($stmt);
+                $stmt->execute();
+            } catch (PDOException $e) {
+                $this->cache = null;
+                $this->numRows = 0;
+                $this->error = $e->getMessage();
+                $this->error();
+            }
+
+            if ($isSelect) {
                 if ($type === PDO::FETCH_CLASS) {
-                    $sql->setFetchMode($type, $argument);
+                    $stmt->setFetchMode($type, $argument);
                 } else {
-                    $sql->setFetchMode($type);
+                    $stmt->setFetchMode($type);
                 }
-                $this->result = $all ? $sql->fetchAll() : $sql->fetch();
-                
+                $this->result = $all ? $stmt->fetchAll() : $stmt->fetch();
+
                 // 正确设置numRows - 对于SELECT查询，使用结果数量
                 if ($this->result !== false) {
                     if ($all && is_array($this->result)) {
@@ -2079,59 +2124,35 @@ class DbCore implements DbInterface
                 } else {
                     $this->numRows = 0;
                 }
-                
-                // 保存当前的joinNodes，因为reset会清空它
-                $currentJoinNodes = $this->joinNodes;
-                
+
                 // 处理子节点查询结果
+                $currentJoinNodes = $this->joinNodes;
                 if (!empty($currentJoinNodes) && is_array($this->result)) {
                     $this->result = $this->nodeParser($this->result);
                 }
 
                 if (!is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
-                    $this->cache->setCache($this->query, $this->result);
+                    $this->cache->setCache($cacheKey, $this->result);
                 }
-                $this->cache = null;
             } else {
-                $this->cache = null;
-                $this->numRows = 0;
-                $this->error = $this->pdo->errorInfo()[2];
-                $this->error();
-            }
-        } elseif ((!$cache && !$str) || ($cache && !$str)) {
-            $this->cache = null;
-            $this->result = $this->pdo->exec($this->query);
-
-            if ($this->result === false) {
-                $this->numRows = 0;
-                $this->error = $this->pdo->errorInfo()[2];
-                $this->error();
-            } else {
-                // 对于非SELECT查询（INSERT、UPDATE、DELETE），exec()返回影响的行数
+                // 非SELECT查询（INSERT、UPDATE、DELETE等），rowCount()返回影响行数
+                $this->result = $stmt->rowCount();
                 $this->numRows = $this->result;
-            }
-        } else {
-            $this->cache = null;
-            $this->result = $cache;
-            $this->numRows = is_array($this->result) ? count($this->result) : ($this->result === '' ? 0 : 1);
-            
-            // 对缓存结果进行子节点处理
-            $currentJoinNodes = $this->joinNodes;
-            if (!empty($currentJoinNodes) && is_array($this->result)) {
-                $this->result = $this->nodeParser($this->result);
             }
         }
 
-        // 计算执行时间并记录SQL
+        $this->cache = null;
+
+        // 计算执行时间并记录SQL（日志记录插值后的可读SQL）
         $executionTime = microtime(true) - $startTime;
-        self::logSql($this->query, $params, $executionTime);
+        self::logSql($this->interpolateQuery(), $this->bindings, $executionTime);
 
         $this->queryCount++;
-        
-        // 自动重置查询构建器状态，防止数据污染
+
+        // 自动重置查询构建器状态，防止数据污染（含绑定参数）
         // 注意：保留查询结果状态（numRows, insertId, query, error, result）
         $this->reset();
-        
+
         return $this->result;
     }
 
@@ -2241,6 +2262,105 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 收集一个绑定参数并返回占位符
+     *
+     * 真预处理核心：构建器各方法用 ? 占位符替代内联转义值，
+     * 执行时通过 bindValue 绑定，从机制上杜绝注入。
+     *
+     * @param mixed $value 绑定值（数组/对象自动转JSON）
+     * @return string 占位符 '?'
+     */
+    protected function bind($value)
+    {
+        if (is_array($value) || is_object($value)) {
+            $value = json_encode($value);
+        }
+        $this->bindings[] = $value;
+        return '?';
+    }
+
+    /**
+     * 批量合并绑定参数
+     *
+     * @param array $values 绑定值数组
+     * @return void
+     */
+    protected function mergeBindings(array $values)
+    {
+        foreach ($values as $value) {
+            $this->bind($value);
+        }
+    }
+
+    /**
+     * 将当前绑定参数按类型绑定到 PDOStatement
+     *
+     * @param \PDOStatement $stmt 预处理语句
+     * @param array|null $bindings 绑定参数（默认使用当前收集的）
+     * @return void
+     */
+    protected function bindValues($stmt, $bindings = null)
+    {
+        $bindings = $bindings ?? $this->bindings;
+        foreach ($bindings as $i => $value) {
+            $stmt->bindValue($i + 1, $value, $this->getPdoParamType($value));
+        }
+    }
+
+    /**
+     * 获取值对应的 PDO 参数类型
+     *
+     * @param mixed $value 值
+     * @return int PDO::PARAM_* 常量
+     */
+    protected function getPdoParamType($value)
+    {
+        if (is_int($value)) {
+            return PDO::PARAM_INT;
+        }
+        if (is_bool($value)) {
+            return PDO::PARAM_BOOL;
+        }
+        if (is_null($value)) {
+            return PDO::PARAM_NULL;
+        }
+        // 浮点数与字符串统一按字符串绑定，MySQL会自动类型转换
+        return PDO::PARAM_STR;
+    }
+
+    /**
+     * 将SQL中的 ? 占位符插值还原为可读SQL（仅用于调试输出/日志/getSql）
+     *
+     * 使用偏移量扫描，正确处理值本身含 ? 的情况。
+     *
+     * @param string|null $sql 含占位符的SQL（默认当前查询）
+     * @param array|null $bindings 绑定参数（默认当前收集的）
+     * @return string 可读SQL
+     */
+    protected function interpolateQuery($sql = null, $bindings = null)
+    {
+        $sql = $sql ?? (string)$this->query;
+        $bindings = $bindings ?? $this->bindings;
+
+        if (empty($bindings) || strpos($sql, '?') === false) {
+            return $sql;
+        }
+
+        $offset = 0;
+        foreach ($bindings as $binding) {
+            $pos = strpos($sql, '?', $offset);
+            if ($pos === false) {
+                break;
+            }
+            $replacement = (string)$this->escape($binding);
+            $sql = substr_replace($sql, $replacement, $pos, 1);
+            $offset = $pos + strlen($replacement);
+        }
+
+        return $sql;
+    }
+
+    /**
      * 设置缓存
      * 
      * @param int|null $time 缓存时间（秒），null表示使用默认配置
@@ -2330,6 +2450,7 @@ class DbCore implements DbInterface
         $this->grouped = false;
         $this->joinNodes = []; // 重置子节点查询配置
         $this->allowFullTable = false; // 全表操作确认仅对当次生效
+        $this->bindings = []; // 清空绑定参数
         // 注意：不重置 numRows, insertId, query, error, result，这些是查询结果状态
     }
 
@@ -2448,19 +2569,19 @@ class DbCore implements DbInterface
             // 如果只提供了$column参数，直接使用PDO::FETCH_COLUMN获取结果
             $this->select($column);
 
-            // 重置查询以便直接执行
+            // 构建查询并捕获绑定参数（reset会清空构建状态）
             $query = $this->buildSelectQuery();
+            $bindings = $this->bindings;
             $this->reset();
             $this->query = $query;
 
             // 确保连接已建立（延迟连接设计下pdo可能为null）
             $this->connect();
-            $stmt = $this->pdo->query($this->query);
-            if ($stmt) {
-                return $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
-            }
+            $stmt = $this->pdo->prepare($query);
+            $this->bindValues($stmt, $bindings);
+            $stmt->execute();
 
-            return [];
+            return $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
         }
     }
 
@@ -2504,16 +2625,17 @@ class DbCore implements DbInterface
             $query .= ' WHERE ' . $this->where;
         }
         
-        // 存储查询，用于getSql方法
-        $this->_lastQuery = $query;
+        // 存储查询（插值后的可读SQL），用于getSql方法
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-        
+
         if ($this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
-        
+
         return $this->query($query, false);
     }
 
@@ -2562,21 +2684,22 @@ class DbCore implements DbInterface
     {
         $column = $this->validateIdentifier($column);
         $query = "UPDATE {$this->from} SET {$column} = {$column} + {$count}";
-        
+
         if (!is_null($this->where)) {
             $query .= ' WHERE ' . $this->where;
         }
-        
-        // 存储查询，用于getSql方法
-        $this->_lastQuery = $query;
+
+        // 存储查询（插值后的可读SQL），用于getSql方法
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-        
+
         if ($this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
-        
+
         return $this->query($query, false);
     }
 
@@ -2591,21 +2714,22 @@ class DbCore implements DbInterface
     {
         $column = $this->validateIdentifier($column);
         $query = "UPDATE {$this->from} SET {$column} = {$column} - {$count}";
-        
+
         if (!is_null($this->where)) {
             $query .= ' WHERE ' . $this->where;
         }
-        
-        // 存储查询，用于getSql方法
-        $this->_lastQuery = $query;
+
+        // 存储查询（插值后的可读SQL），用于getSql方法
+        $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-        
+
         if ($this->_returnSql) {
             $this->_returnSql = false;
+            $displaySql = $this->interpolateQuery($query);
             $this->reset();
-            return $query;
+            return $displaySql;
         }
-        
+
         return $this->query($query, false);
     }
 
@@ -2635,7 +2759,13 @@ class DbCore implements DbInterface
 
         // 使用子查询构建嵌套数据
         $subQuery = "(SELECT " . implode(', ', $fieldList) . " FROM " . $this->from . " WHERE " . $this->where . ")";
-        
+
+        // 子查询中的占位符与主WHERE的绑定值相同，但子查询在SQL文本中位于SELECT子句（先于主WHERE出现），
+        // 因此需要将当前WHERE对应的绑定参数复制一份前置，保持占位符与绑定顺序一致
+        $wherePlaceholderCount = substr_count((string)$this->where, '?');
+        $whereBindings = array_slice($this->bindings, 0, $wherePlaceholderCount);
+        $this->bindings = array_merge($whereBindings, $this->bindings);
+
         // 将子查询添加到SELECT中
         $this->select("({$subQuery}) AS {$alias}");
         
