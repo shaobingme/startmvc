@@ -99,6 +99,27 @@ class Csrf
 	}
 
 	/**
+	 * 获取请求中提交的 Token
+	 * 依次从 POST 字段、X-CSRF-TOKEN / X-XSRF-TOKEN 请求头读取
+	 * （PUT/DELETE 请求 PHP 不填充 $_POST，AJAX 请求通常通过请求头提交）
+	 * @return string|null
+	 */
+	private static function getRequestToken()
+	{
+		$tokenName = self::getTokenName();
+		$token = Request::post($tokenName);
+
+		if ($token === null || $token === '') {
+			$token = Request::header('X-CSRF-TOKEN');
+		}
+		if ($token === null || $token === '') {
+			$token = Request::header('X-XSRF-TOKEN');
+		}
+
+		return is_string($token) ? $token : null;
+	}
+
+	/**
 	 * 验证 CSRF Token
 	 * @param bool|null $deleteAfterCheck 是否在验证后删除 token（null 则使用配置值）
 	 * @return bool
@@ -108,8 +129,8 @@ class Csrf
 		$tokenName = self::getTokenName();
 		$tokenTimeName = $tokenName . '_time';
 		$tokenLifetimeName = $tokenName . '_lifetime';
-		
-		$postToken = Request::post($tokenName);
+
+		$postToken = self::getRequestToken();
 		$sessionToken = Session::get($tokenName);
 		$tokenTime = Session::get($tokenTimeName);
 		
