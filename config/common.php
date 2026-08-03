@@ -25,6 +25,8 @@ return [
     // Session安全配置
     'session' => [
         'cookie_httponly' => true,       // 防止JavaScript访问Cookie
+        'cookie_secure' => 'auto',       // Cookie仅通过HTTPS传输：true强制开启 / false关闭 / 'auto'自动检测HTTPS
+        'cookie_samesite' => 'Lax',      // 防CSRF：Lax / Strict / None（None必须配合secure）
         'use_only_cookies' => true,      // 只使用Cookie存储会话ID
         'cookie_lifetime' => 7200,       // 会话Cookie生存时间（秒）
         'gc_maxlifetime' => 7200,        // 垃圾回收时间（秒）

@@ -138,18 +138,41 @@ class Session
             if (!empty($sessionConfig)) {
                 // 设置会话cookie参数
                 if (isset($sessionConfig['cookie_lifetime'])) {
-                    session_set_cookie_params(
-                        $sessionConfig['cookie_lifetime'],      // lifetime
-                        '/',                                    // path
-                        '',                                     // domain
-                        false,                                  // secure
-                        $sessionConfig['cookie_httponly'] ?? true  // httponly
-                    );
+                    // secure: 支持 true / false / 'auto'（默认 auto，自动检测HTTPS）
+                    $secure = $sessionConfig['cookie_secure'] ?? 'auto';
+                    if ($secure === 'auto' || $secure === null) {
+                        $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                            || (($_SERVER['SERVER_PORT'] ?? null) == 443)
+                            || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+                    }
+                    $httponly = $sessionConfig['cookie_httponly'] ?? true;
+                    $samesite = $sessionConfig['cookie_samesite'] ?? 'Lax';
+
+                    if (PHP_VERSION_ID >= 70300) {
+                        // PHP >= 7.3 支持数组形式，可设置 SameSite
+                        session_set_cookie_params([
+                            'lifetime' => $sessionConfig['cookie_lifetime'],
+                            'path'     => '/',
+                            'domain'   => '',
+                            'secure'   => $secure,
+                            'httponly' => $httponly,
+                            'samesite' => $samesite,
+                        ]);
+                    } else {
+                        // PHP < 7.3 通过 path 后缀方式兼容 SameSite
+                        session_set_cookie_params(
+                            $sessionConfig['cookie_lifetime'],  // lifetime
+                            '/; samesite=' . $samesite,         // path
+                            '',                                 // domain
+                            $secure,                            // secure
+                            $httponly                           // httponly
+                        );
+                    }
                 }
-                
+
                 // 设置其他会话选项
                 foreach ($sessionConfig as $option => $value) {
-                    if ($option !== 'cookie_lifetime' && $option !== 'cookie_httponly') {
+                    if (!in_array($option, ['cookie_lifetime', 'cookie_httponly', 'cookie_secure', 'cookie_samesite'], true)) {
                         $iniOption = 'session.' . $option;
                         ini_set($iniOption, $value);
                     }
