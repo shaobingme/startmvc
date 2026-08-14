@@ -78,12 +78,23 @@ class Request
     /**
      * 获取POST参数
      * @param string $key 键名(为空则返回所有POST数据)
-     * @param array $options 处理选项
+     * @param array|mixed $options 处理选项；传入标量时视为默认值 default
      * @return mixed
      */
     public static function post($key = '', $options = [])
     {
-        $val = isset($_POST[$key]) ? $_POST[$key] : ($_POST ?: null);
+        // 支持 Request::post('age', 0) 简写：标量 options 视为默认值
+        if (!is_array($options)) {
+            $options = ['default' => $options];
+        }
+
+        // 不传 key 时返回所有 POST 数据；传了 key 但不存在时返回 null（交由 handling 走默认值逻辑）
+        if ($key === '' || $key === null) {
+            $val = $_POST ?: null;
+        } else {
+            $val = array_key_exists($key, $_POST) ? $_POST[$key] : null;
+        }
+
         return Http::handling($val, $options);
     }
 
