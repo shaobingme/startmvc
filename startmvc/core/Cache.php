@@ -42,10 +42,11 @@ class Cache {
 	 * 设置缓存
 	 * @param string $key 缓存键名
 	 * @param mixed $val 缓存数据
+	 * @param int|null $ttl 有效期（秒），null 时使用驱动配置的默认 cacheTime
 	 * @return $this
 	 */
-	public function set(string $key, $val) {
-		$this->drive->set($key, $val);
+	public function set(string $key, $val, $ttl = null) {
+		$this->drive->set($key, $val, $ttl);
 		return $this;
 	}
 	

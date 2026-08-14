@@ -192,9 +192,10 @@ function config($key = null, $value = null)
 function cache($name, $value = null, $expire = 3600, $driver = null)
 {
     static $instance = [];
-    
-    // 获取缓存驱动实例
-    $driverName = $driver ?: config('cache.drive', 'file');
+
+    // 注意：不能写成 config('cache.drive', 'file')——config() 收到两个参数会被当作写配置，
+    // 返回 true 导致驱动名变成 '1'。这里先取值、为空时再回退默认驱动。
+    $driverName = $driver ?: (config('cache.drive') ?: 'file');
     if (!isset($instance[$driverName])) {
         $instance[$driverName] = Cache::store($driverName);
     }
@@ -203,20 +204,15 @@ function cache($name, $value = null, $expire = 3600, $driver = null)
     if ($value === null) {
         return $instance[$driverName]->get($name);
     }
-    
+
     // 删除缓存
     if ($value === false) {
         return $instance[$driverName]->delete($name);
     }
-    
-    // 自定义缓存参数
-    $cacheConfig = config('cache.' . $driverName, []);
-    if ($expire !== 3600) {
-        $cacheConfig['cacheTime'] = $expire;
-    }
-    
-    // 设置缓存
-    return $instance[$driverName]->set($name, $value);
+
+    // 设置缓存：显式传入的 $expire（区别于默认值 3600）作为本次写入的有效期，
+    // 未显式指定时传 null，由驱动使用配置中的默认 cacheTime
+    return $instance[$driverName]->set($name, $value, $expire !== 3600 ? $expire : null);
 }
 
 /**

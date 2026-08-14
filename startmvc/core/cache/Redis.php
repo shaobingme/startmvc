@@ -64,16 +64,18 @@ class Redis {
      * 设置缓存
      * @param string $key 缓存键名
      * @param mixed $data 缓存数据
+     * @param int|null $ttl 有效期（秒），null 时使用构造时的默认 cacheTime
      * @return bool 是否成功
      */
-    public function set($key, $data) {
+    public function set($key, $data, $ttl = null) {
+        $expire = $ttl ?? $this->cacheTime;
         $cacheKey = $this->getKey($key);
         $cacheData = [
             'data' => $data,
-            'expire' => time() + $this->cacheTime
+            'expire' => time() + $expire
         ];
-        
-        return $this->redis->set($cacheKey, serialize($cacheData), $this->cacheTime);
+
+        return $this->redis->set($cacheKey, serialize($cacheData), $expire);
     }
 
     /**

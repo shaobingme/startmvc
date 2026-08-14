@@ -49,13 +49,15 @@ class File {
      * 设置缓存
      * @param string $key 缓存键名
      * @param mixed $data 缓存数据
+     * @param int|null $ttl 有效期（秒），null 时使用构造时的默认 cacheTime
      * @return void
      */
-    public function set($key, $data) {
+    public function set($key, $data, $ttl = null) {
+        $expire = $ttl ?? $this->cacheTime;
         $cacheFile = $this->getPath($key);
         $cacheData = [
             'data' => $data,
-            'expire' => time() + $this->cacheTime
+            'expire' => time() + $expire
         ];
         file_put_contents($cacheFile, serialize($cacheData));
     }
