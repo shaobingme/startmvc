@@ -26,12 +26,14 @@ class Loader
 			$instance = Container::getInstance()->make($controller);
 
 			if (!method_exists($instance, $action)) {
-				throw new \Exception("方法{$action}不存在");
+				// 方法不存在按 404 处理（路由目标错误），而非 500 服务器错误
+				throw new \Exception("方法{$action}不存在", 404);
 			}
 
 			return call_user_func_array([$instance, $action], $argv);
 		} catch (\Exception $e) {
-			throw new \Exception("控制器实例化失败：" . $e->getMessage());
+			// 保留原始异常状态码（如方法不存在时的 404），供异常处理器映射 HTTP 状态码
+			throw new \Exception("控制器实例化失败：" . $e->getMessage(), $e->getCode(), $e);
 		}
 	}
 

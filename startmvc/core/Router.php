@@ -10,62 +10,52 @@
 
 namespace startmvc\core;
 
-use startmvc\core\Middleware;
-
-class Router 
+/**
+ * 路由器
+ *
+ * 统一的路由表 + 两种定义方式（均写在 config/route.php，可混用）：
+ *   1. 流式 API（推荐）：直接调用 Router::get()/post()/group()/resource()
+ *   2. 兼容旧配置：return 数组，由 loadLegacyConfig() 转译进同一张路由表
+ *
+ * action 写法：
+ *   'Home/User/show'  模块/控制器/方法（方法自动加 Action 后缀）
+ *   Closure           闭包，匹配参数按序传入
+ *   目标中的 $1/$2 引用会被替换为匹配参数（兼容旧配置写法）
+ */
+class Router
 {
     /**
-     * 单例实例
-     * @var Router
-     */
-    protected static $instance;
-    
-    /**
-     * 获取Router实例
-     * @return Router
-     */
-    public static function getInstance()
-    {
-        if (self::$instance === null) {
-            self::$instance = new static();
-        }
-        return self::$instance;
-    }
-
-    /**
-     * 保护构造函数，防止外部实例化
-     */
-    protected function __construct()
-    {
-    }
-    
-    /**
-     * 防止克隆
-     */
-    private function __clone()
-    {
-    }
-    
-    /**
-     * 保存所有注册的路由
+     * 路由表：[method][uri] => ['action' => mixed, 'middleware' => array]
      * @var array
      */
     protected static $routes = [];
-    
+
+    /**
+     * 原生正则路由：[method][] => ['regex' => string, 'action' => mixed, 'middleware' => array]
+     * @var array
+     */
+    protected static $rawRoutes = [];
+
     /**
      * 当前路由组前缀
      * @var string
      */
     protected static $prefix = '';
-    
+
     /**
      * 当前路由组中间件
      * @var array
      */
     protected static $middleware = [];
-    
+
     /**
-     * 路由参数模式
+     * 路由是否已加载
+     * @var bool
+     */
+    protected static $routesLoaded = false;
+
+    /**
+     * 路由参数占位符
      * @var array
      */
     protected static $patterns = [
@@ -74,406 +64,397 @@ class Router
         ':any' => '(.+)',
         ':num' => '([0-9]+)',
         ':alpha' => '([a-zA-Z]+)',
-        ':alphanum' => '([a-zA-Z0-9]+)'
+        ':alphanum' => '([a-zA-Z0-9]+)',
     ];
-    
+
     /**
-     * 简单模式替换规则
+     * 旧配置简便占位符 → 内部占位符（兼容 (:num) 写法）
      * @var array
      */
-    protected static $simplePatterns = [
-        '(:any)' => '(.+)',
-        '(:num)' => '([0-9]+)',
-        '(:alpha)' => '([a-zA-Z]+)',
-        '(:alphanum)' => '([a-zA-Z0-9]+)'
+    protected static $legacyPatterns = [
+        '(:num)' => ':num',
+        '(:any)' => ':any',
+        '(:alpha)' => ':alpha',
+        '(:alnum)' => ':alphanum',
     ];
-    
+
     /**
-     * 添加GET路由
-     * @param string $uri 路由URI
-     * @param mixed $action 控制器方法或回调函数
-     * @param array $middleware 中间件数组
+     * 自定义占位符
+     * @param string $name 形如 :name
+     * @param string $regex 正则（含括号分组）
+     * @return void
+     */
+    public static function pattern($name, $regex)
+    {
+        self::$patterns[$name] = $regex;
+    }
+
+    /**
+     * 添加 GET 路由
+     * @param string $uri 路由 URI
+     * @param mixed $action 控制器方法或闭包
+     * @param array $middleware 路由级中间件
      * @return void
      */
     public static function get($uri, $action, $middleware = [])
     {
         self::addRoute('GET', $uri, $action, $middleware);
     }
-    
+
     /**
-     * 添加POST路由
-     * @param string $uri 路由URI
-     * @param mixed $action 控制器方法或回调函数
-     * @param array $middleware 中间件数组
-     * @return void
+     * 添加 POST 路由
      */
     public static function post($uri, $action, $middleware = [])
     {
         self::addRoute('POST', $uri, $action, $middleware);
     }
-    
+
     /**
-     * 添加PUT路由
-     * @param string $uri 路由URI
-     * @param mixed $action 控制器方法或回调函数
-     * @param array $middleware 中间件数组
-     * @return void
+     * 添加 PUT 路由
      */
     public static function put($uri, $action, $middleware = [])
     {
         self::addRoute('PUT', $uri, $action, $middleware);
     }
-    
+
     /**
-     * 添加DELETE路由
-     * @param string $uri 路由URI
-     * @param mixed $action 控制器方法或回调函数
-     * @param array $middleware 中间件数组
-     * @return void
+     * 添加 PATCH 路由
+     */
+    public static function patch($uri, $action, $middleware = [])
+    {
+        self::addRoute('PATCH', $uri, $action, $middleware);
+    }
+
+    /**
+     * 添加 DELETE 路由
      */
     public static function delete($uri, $action, $middleware = [])
     {
         self::addRoute('DELETE', $uri, $action, $middleware);
     }
-    
+
     /**
-     * 添加支持任意HTTP方法的路由
-     * @param string $uri 路由URI
-     * @param mixed $action 控制器方法或回调函数
-     * @param array $middleware 中间件数组
-     * @return void
+     * 添加支持任意 HTTP 方法的路由
      */
     public static function any($uri, $action, $middleware = [])
     {
-        $methods = ['GET', 'POST', 'PUT', 'DELETE'];
-        foreach ($methods as $method) {
+        foreach (['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as $method) {
             self::addRoute($method, $uri, $action, $middleware);
         }
     }
-    
+
     /**
-     * 创建路由组
+     * 创建路由组（支持嵌套）
      * @param array|string $attributes 路由组属性或前缀
      * @param callable $callback 路由定义回调
      * @return void
      */
     public static function group($attributes, callable $callback)
     {
-        // 保存当前组状态
         $previousPrefix = self::$prefix;
         $previousMiddleware = self::$middleware;
-        
-        // 设置新组属性
+
         if (is_string($attributes)) {
-            self::$prefix .= $attributes;
+            self::$prefix .= '/' . trim($attributes, '/');
         } else {
             if (isset($attributes['prefix'])) {
                 self::$prefix .= '/' . trim($attributes['prefix'], '/');
             }
-            
             if (isset($attributes['middleware'])) {
-                $middleware = (array) $attributes['middleware'];
-                self::$middleware = array_merge(self::$middleware, $middleware);
+                self::$middleware = array_merge(self::$middleware, (array)$attributes['middleware']);
             }
         }
-        
-        // 执行回调
+
         $callback();
-        
-        // 恢复先前状态
+
         self::$prefix = $previousPrefix;
         self::$middleware = $previousMiddleware;
     }
-    
+
     /**
-     * 添加RESTful资源路由
-     * @param string $name 资源名称
-     * @param string $controller 控制器类
+     * 添加 RESTful 资源路由（一行生成 7 条路由）
+     * @param string $name 资源 URI，如 '/article'
+     * @param string $controller 控制器目标，如 'Home/Article'
+     * @param array $middleware 路由级中间件
      * @return void
      */
-    public static function resource($name, $controller)
+    public static function resource($name, $controller, $middleware = [])
     {
         $name = trim($name, '/');
-        self::get("/$name", "$controller@index");
-        self::get("/$name/create", "$controller@create");
-        self::post("/$name", "$controller@store");
-        self::get("/$name/:id", "$controller@show");
-        self::get("/$name/:id/edit", "$controller@edit");
-        self::put("/$name/:id", "$controller@update");
-        self::delete("/$name/:id", "$controller@destroy");
+        self::get("/{$name}", "{$controller}/index", $middleware);
+        self::get("/{$name}/create", "{$controller}/create", $middleware);
+        self::post("/{$name}", "{$controller}/store", $middleware);
+        self::get("/{$name}/:id", "{$controller}/show", $middleware);
+        self::get("/{$name}/:id/edit", "{$controller}/edit", $middleware);
+        self::put("/{$name}/:id", "{$controller}/update", $middleware);
+        self::delete("/{$name}/:id", "{$controller}/destroy", $middleware);
     }
-    
+
     /**
      * 添加路由规则
-     * @param string $method HTTP方法
-     * @param string $uri 路由URI
-     * @param mixed $action 控制器方法或回调函数
-     * @param array $middleware 中间件数组
+     * @param string $method HTTP 方法，或 'ANY'（旧配置兼容，不限方法）
+     * @param string $uri 路由 URI；以 '^' 开头时视为原生正则（兼容旧 '/^...$/' 写法）
+     * @param mixed $action 控制器方法或闭包
+     * @param array $middleware 路由级中间件
      * @return void
      */
     protected static function addRoute($method, $uri, $action, $middleware = [])
     {
-        // 处理前缀
-        $uri = self::$prefix . '/' . trim($uri, '/');
-        $uri = trim($uri, '/');
-        if (empty($uri)) {
+        $uri = trim((string)$uri, '/');
+
+        // 原生正则路由：不套前缀，按正则整串匹配
+        if (strpos($uri, '^') === 0) {
+            self::$rawRoutes[$method][] = [
+                'regex' => $uri,
+                'action' => $action,
+                'middleware' => $middleware,
+            ];
+            return;
+        }
+
+        $uri = trim(self::$prefix . '/' . $uri, '/');
+        if ($uri === '') {
             $uri = '/';
         }
-        
-        // 存储路由
+        // 统一旧简便占位符写法
+        $uri = strtr($uri, self::$legacyPatterns);
+
         self::$routes[$method][$uri] = [
             'action' => $action,
-            'middleware' => $middleware
+            'middleware' => array_merge(self::$middleware, $middleware),
         ];
     }
-    
+
     /**
-     * 根据URI和方法匹配路由
-     * @param string $uri 请求URI
-     * @param string $method HTTP方法
-     * @return array|null 匹配的路由和参数
+     * 加载路由定义（每请求一次）
+     *
+     * config/route.php 是唯一的路由定义文件，同时支持两种写法：
+     *   1. 流式 API：在 return 之前直接调用 Router::get()/group()/resource()（推荐）
+     *   2. 数组配置：return 一个二维数组（兼容旧版写法）
+     * 两种写法可混用，定义结果进入同一张路由表。
+     *
+     * @return void
+     */
+    public static function loadRoutes()
+    {
+        if (self::$routesLoaded) {
+            return;
+        }
+        self::$routesLoaded = true;
+
+        // 路由配置文件在全局命名空间执行（include 不继承宿主命名空间），
+        // 注册类别名让配置文件中可以直接写 Router::get(...)
+        if (!class_exists('Router', false)) {
+            class_alias(self::class, 'Router');
+        }
+
+        // 加载路由配置：文件中 return 的数组按旧版格式转译进路由表
+        $legacy = Config::load('route');
+        if (is_array($legacy)) {
+            self::loadLegacyConfig($legacy);
+        }
+    }
+
+    /**
+     * 将旧版 config/route.php 数组转译进统一路由表
+     *
+     * 旧格式：['pattern', 'home/article/index/$1']
+     * pattern 支持简便占位符 (:num) 和原生正则 '/^...$/' 两种写法；
+     * 旧配置不限请求方法，按 ANY 注册以保持行为一致。
+     *
+     * @param array $routes
+     * @return void
+     */
+    protected static function loadLegacyConfig(array $routes)
+    {
+        foreach ($routes as $route) {
+            if (!is_array($route) || count($route) < 2) {
+                continue;
+            }
+            list($pattern, $target) = $route;
+            $pattern = (string)$pattern;
+
+            // 原生正则写法 '/^...$/'：去掉两侧分隔符后注册
+            if (strlen($pattern) > 2 && $pattern[0] === '/' && substr($pattern, -1) === '/') {
+                self::addRoute('ANY', substr($pattern, 1, -1), $target);
+                continue;
+            }
+
+            self::addRoute('ANY', $pattern, $target);
+        }
+    }
+
+    /**
+     * 根据 URI 和 HTTP 方法匹配路由
+     * @param string $uri 请求 URI（不含查询串，可含前后斜杠）
+     * @param string $method HTTP 方法
+     * @return array|null [路由数据, 匹配参数] 或 null
      */
     public static function match($uri, $method)
     {
-        $uri = trim($uri, '/');
-        if (empty($uri)) {
+        $uri = trim((string)$uri, '/');
+        if ($uri === '') {
             $uri = '/';
         }
-        
-        // 检查精确匹配
-        if (isset(self::$routes[$method][$uri])) {
-            return [self::$routes[$method][$uri], []];
+        $method = strtoupper($method);
+        if ($method === 'HEAD') {
+            $method = 'GET';
         }
-        
-        // 检查模式匹配
-        foreach (self::$routes[$method] ?? [] as $route => $data) {
-            $pattern = self::compileRoute($route);
-            if (preg_match('#^' . $pattern . '$#', $uri, $matches)) {
-                array_shift($matches); // 移除完整匹配
-                return [$data, $matches];
+
+        // 候选方法：精确方法优先，ANY 兜底（旧配置不限方法）
+        $candidates = $method === 'GET' ? ['GET', 'ANY'] : [$method, 'ANY'];
+
+        // 1) 精确匹配（静态表，零正则开销）
+        foreach ($candidates as $m) {
+            if (isset(self::$routes[$m][$uri])) {
+                return [self::$routes[$m][$uri], []];
             }
         }
-        
+
+        // 2) 原生正则路由（优先级高于内置占位符模式）
+        foreach ($candidates as $m) {
+            foreach (self::$rawRoutes[$m] ?? [] as $data) {
+                if (preg_match('#' . $data['regex'] . '#', $uri, $matches)) {
+                    array_shift($matches);
+                    return [$data, $matches];
+                }
+            }
+        }
+
+        // 3) 占位符模式匹配
+        foreach ($candidates as $m) {
+            foreach (self::$routes[$m] ?? [] as $route => $data) {
+                if (preg_match('#^' . self::compileRoute($route) . '$#', $uri, $matches)) {
+                    array_shift($matches);
+                    return [$data, $matches];
+                }
+            }
+        }
+
         return null;
     }
-    
+
     /**
-     * 将路由转换为正则表达式
-     * @param string $route 路由URI
-     * @return string 编译后的正则表达式
+     * 将路由 URI 编译为正则（占位符替换 + 斜杠转义）
+     * @param string $route
+     * @return string
      */
     protected static function compileRoute($route)
     {
         if (strpos($route, ':') !== false) {
-            foreach (self::$patterns as $key => $pattern) {
-                $route = str_replace($key, $pattern, $route);
-            }
+            // strtr 按最长键优先替换，:alphanum 不会被 :alpha 截断
+            $route = strtr($route, self::$patterns);
         }
-        
         return str_replace('/', '\/', $route);
     }
-    
+
     /**
-     * 从配置文件加载路由定义
-     * @param array $routes 路由配置数组
-     * @return void
+     * 解析路由目标并执行（唯一的控制器解析入口）
+     *
+     * @param mixed $action '模块/控制器/方法' 字符串或闭包
+     * @param array $params 路由匹配参数
+     * @return mixed 控制器方法返回值
+     * @throws \Exception 目标控制器或方法不存在时抛出 404 异常
      */
-    public static function loadFromConfig(array $routes)
+    public static function resolveAction($action, array $params = [])
     {
-        foreach ($routes as $route) {
-            if (is_array($route) && count($route) >= 2) {
-                $pattern = $route[0];
-                $action = $route[1];
-                
-                // 检查是否为正则表达式格式 /pattern/
-                if (is_string($pattern) && strlen($pattern) > 2 && $pattern[0] === '/' && $pattern[strlen($pattern) - 1] === '/') {
-                    // 正则表达式路由
-                    self::regexRoute('GET', $pattern, $action);
-                } else {
-                    // 简单模式路由
-                    self::simpleRoute('GET', $pattern, $action);
-                }
-            }
+        if ($action instanceof \Closure) {
+            return call_user_func_array($action, $params);
         }
-    }
-    
-    /**
-     * 添加简单模式路由
-     * @param string $method HTTP方法
-     * @param string $pattern 路由模式
-     * @param string $action 控制器路径
-     * @return void
-     */
-    public static function simpleRoute($method, $pattern, $action)
-    {
-        // 转换简单模式为正则表达式
-        $regex = $pattern;
-        foreach (self::$simplePatterns as $key => $replacement) {
-            $regex = str_replace($key, $replacement, $regex);
+
+        $action = trim((string)$action, '/');
+
+        // 目标中的 $1/$2 引用替换为匹配参数（兼容旧配置写法）
+        if ($params && strpos($action, '$') !== false) {
+            $action = preg_replace_callback('/\$(\d+)/', function ($m) use ($params) {
+                $i = (int)$m[1] - 1;
+                return isset($params[$i]) ? $params[$i] : '';
+            }, $action);
+            $params = [];
         }
-        
-        // 如果不是正则表达式，将其转换为精确匹配的正则
-        if ($regex === $pattern) {
-            $regex = '/^' . preg_quote($pattern, '/') . '$/';
-        } else {
-            $regex = '/^' . str_replace('/', '\/', $regex) . '$/';
+
+        $parts = array_values(array_filter(explode('/', $action), 'strlen'));
+        $defaultModule = config('default_module') ?: 'home';
+        $defaultController = config('default_controller') ?: 'Index';
+        $defaultAction = config('default_action') ?: 'index';
+
+        $module = strtolower($parts[0] ?? $defaultModule);
+        $controller = self::convertController($parts[1] ?? $defaultController);
+        $method = self::convertAction($parts[2] ?? $defaultAction);
+        $args = array_slice($parts, 3);
+
+        // View 等组件依赖这些常量
+        if (!defined('MODULE')) define('MODULE', $module);
+        if (!defined('CONTROLLER')) define('CONTROLLER', $controller);
+        if (!defined('ACTION')) define('ACTION', $method);
+
+        $class = APP_NAMESPACE . "\\{$module}\\controller\\{$controller}Controller";
+        if (!class_exists($class)) {
+            throw new \Exception("控制器不存在: {$class}", 404);
         }
-        
-        self::$routes['config'][] = [
-            'type' => 'simple',
-            'method' => $method,
-            'pattern' => $pattern,
-            'regex' => $regex,
-            'action' => $action
-        ];
+
+        $method .= 'Action';
+        return Loader::make($class, $method, array_merge($args, $params));
     }
-    
+
     /**
-     * 添加正则表达式路由
-     * @param string $method HTTP方法
-     * @param string $regex 正则表达式
-     * @param string $action 控制器路径
-     * @return void
+     * 解析路由规则（URL 结构直解析：模块/控制器/方法/参数）
+     *
+     * 仅负责 URL 结构解析；路由表匹配（流式 API 与旧配置数组）由 match() 负责。
+     *
+     * @param string $uri 请求 URI
+     * @return array [module, controller, action, params]
      */
-    public static function regexRoute($method, $regex, $action)
+    public static function parse($uri)
     {
-        self::$routes['config'][] = [
-            'type' => 'regex',
-            'method' => $method,
-            'regex' => $regex,
-            'action' => $action
-        ];
-    }
-    
-    /**
-     * 解析路由并执行匹配的操作
-     * @return mixed
-     * @throws \Exception 未找到路由时抛出异常
-     */
-    public static function dispatch()
-    {
-        $uri = $_SERVER['REQUEST_URI'];
-        
         // 移除查询字符串
         if (strpos($uri, '?') !== false) {
             $uri = substr($uri, 0, strpos($uri, '?'));
         }
-        
-        $method = $_SERVER['REQUEST_METHOD'];
-        
-        // 处理PUT、DELETE请求
-        if ($method === 'POST' && isset($_POST['_method'])) {
-            $method = strtoupper($_POST['_method']);
-        }
-        
-        // 先尝试匹配新的路由格式
-        $result = self::match($uri, $method);
-        if ($result !== null) {
-            list($route, $params) = $result;
-            
-            // 获取路由中间件
-            $routeMiddleware = $route['middleware'] ?? [];
-            
-            // 创建请求对象
-            $request = new Request();
-            
-            // 应用路由特定的中间件
-            $response = Middleware::pipeline($routeMiddleware, $request, function($request) use ($route, $params) {
-                // 执行控制器方法或回调
-                $action = $route['action'];
-                
-                if (is_callable($action)) {
-                    return call_user_func_array($action, $params);
-                }
-                
-                // 解析控制器和方法
-                if (is_string($action)) {
-                    list($controller, $method) = explode('@', $action);
-                    $controller = 'app\\controllers\\' . $controller;
-                    $instance = new $controller();
-                    return call_user_func_array([$instance, $method], $params);
-                }
-            });
-            
-            return $response;
-        }
-        
-        // 尝试匹配配置文件中的路由
-        $configResult = self::matchConfigRoutes($uri);
-        if ($configResult !== null) {
-            list($target, $params) = $configResult;
-            
-            // 处理控制器路径
-            $parts = explode('/', $target);
-            if (count($parts) >= 2) {
-                $methodName = self::convertAction(array_pop($parts));
-                $controllerName = self::convertController(array_pop($parts));
-                $namespace = !empty($parts) ? implode('\\', $parts) : 'app\\controllers';
-                
-                $controllerClass = $namespace . '\\' . $controllerName . 'Controller';
-                $controller = new $controllerClass();
-                return call_user_func_array([$controller, $methodName], $params);
-            } else {
-                throw new \Exception("Invalid route target: $target", 500);
-            }
-        }
-        
-        // 如果没有匹配到路由，尝试使用默认解析方式
-        $parseResult = self::parse($uri);
-        if ($parseResult && count($parseResult) >= 3) {
-            list($module, $controller, $action, $params) = $parseResult;
-            
-            // 构建控制器类名
-            $controllerClass = 'app\\' . $module . '\\controller\\' . ucfirst($controller) . 'Controller';
-            
-            // 检查控制器类是否存在
-            if (class_exists($controllerClass)) {
-                $controllerInstance = new $controllerClass();
-                
-                // 检查方法是否存在
-                if (method_exists($controllerInstance, $action)) {
-                    return call_user_func_array([$controllerInstance, $action], $params ?: []);
-                }
-            }
-        }
-        
-        throw new \Exception("Route not found: $uri [$method]", 404);
-    }
-    
-    /**
-     * 匹配配置文件中定义的路由
-     * @param string $uri 请求URI
-     * @return array|null 匹配的目标和参数
-     */
-    protected static function matchConfigRoutes($uri)
-    {
+
+        // 移除前后的斜杠
         $uri = trim($uri, '/');
-        
-        foreach (self::$routes['config'] ?? [] as $route) {
-            $pattern = $route['regex'];
-            $target = $route['action'];
-            
-            // 移除分隔符
-            if ($route['type'] === 'regex') {
-                $pattern = substr($pattern, 1, -1);
-            }
-            
-            if (preg_match($pattern, $uri, $matches)) {
-                array_shift($matches); // 移除完整匹配
-                
-                // 替换目标中的 $1, $2 等为实际参数
-                $replacedTarget = preg_replace_callback('/\$(\d+)/', function($m) use ($matches) {
-                    $index = intval($m[1]) - 1;
-                    return isset($matches[$index]) ? $matches[$index] : '';
-                }, $target);
-                
-                return [$replacedTarget, $matches];
+
+        $defaultModule = config('default_module') ?: 'home';
+        $defaultController = config('default_controller') ?: 'Index';
+        $defaultAction = config('default_action') ?: 'index';
+
+        // 如果URI为空，设置为首页
+        if (empty($uri)) {
+            return [$defaultModule, $defaultController, $defaultAction, []];
+        }
+
+        // 智能处理URL后缀
+        $urlSuffix = config('common.url_suffix') ?: '';
+        if (!empty($urlSuffix) && strlen($uri) > strlen($urlSuffix)) {
+            $suffixPos = strrpos($uri, $urlSuffix);
+            if ($suffixPos !== false && $suffixPos == strlen($uri) - strlen($urlSuffix)) {
+                $uri = substr($uri, 0, $suffixPos);
             }
         }
-        
-        return null;
+
+        $parts = explode('/', $uri);
+        $possibleModule = strtolower($parts[0]);
+
+        // 如果模块目录存在，按正常方式解析
+        if (is_dir(APP_PATH . $possibleModule)) {
+            return [
+                $possibleModule,
+                isset($parts[1]) ? self::convertController($parts[1]) : $defaultController,
+                isset($parts[2]) ? self::convertAction($parts[2]) : $defaultAction,
+                array_slice($parts, 3),
+            ];
+        }
+
+        // 模块目录不存在，假设省略了默认模块，将第一个部分作为控制器
+        return [
+            $defaultModule,
+            isset($parts[0]) ? self::convertController($parts[0]) : $defaultController,
+            isset($parts[1]) ? self::convertAction($parts[1]) : $defaultAction,
+            array_slice($parts, 2),
+        ];
     }
-    
+
     /**
      * 转换URL片段为控制器名称 (StudlyCase)
      * @param string $part
@@ -494,141 +475,4 @@ class Router
         $studly = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', strtolower($part))));
         return lcfirst($studly);
     }
-
-    /**
-     * 解析路由规则
-     * @param string $uri 请求URI
-     * @return array 解析结果
-     */
-    public static function parse($uri)
-    {
-        // 移除查询字符串
-        if (strpos($uri, '?') !== false) {
-            $uri = substr($uri, 0, strpos($uri, '?'));
-        }
-        
-        // 移除前后的斜杠
-        $uri = trim($uri, '/');
-        
-        // 获取默认模块配置
-        $defaultModule = config('default_module') ?: 'home';
-        $defaultController = config('default_controller') ?: 'Index';
-        $defaultAction = config('default_action') ?: 'index';
-        
-        // 如果URI为空，设置为首页
-        if (empty($uri)) {
-            return [$defaultModule, $defaultController, $defaultAction, []];
-        }
-        
-        // 智能处理URL后缀
-        $originalUri = $uri;
-        $urlSuffix = config('common.url_suffix') ?: '';
-        
-        // 如果配置了URL后缀且URI以该后缀结尾，则移除后缀进行路由匹配
-        if (!empty($urlSuffix) && strlen($uri) > strlen($urlSuffix)) {
-            $suffixPos = strrpos($uri, $urlSuffix);
-            if ($suffixPos !== false && $suffixPos == strlen($uri) - strlen($urlSuffix)) {
-                $uri = substr($uri, 0, $suffixPos);
-            }
-        }
-        
-        // 加载路由配置
-        $routes = \startmvc\core\Config::load('route') ?: [];
-        
-        // 遍历配置的路由规则
-        foreach ($routes as $route) {
-            if (is_array($route) && count($route) >= 2) {
-                $pattern = $route[0];
-                $target = $route[1];
-                
-                // 处理正则表达式路由
-                if (is_string($pattern) && strlen($pattern) > 2 && $pattern[0] === '/' && $pattern[strlen($pattern) - 1] === '/') {
-                    if (preg_match($pattern, $uri, $matches)) {
-                        // 替换目标中的 $1, $2 等为实际参数
-                        $target = preg_replace_callback('/\$(\d+)/', function($m) use ($matches) {
-                            $index = intval($m[1]);
-                            return isset($matches[$index]) ? $matches[$index] : '';
-                        }, $target);
-                        
-                        $parts = explode('/', $target);
-                        return [
-                            isset($parts[0]) ? strtolower($parts[0]) : $defaultModule,
-                            isset($parts[1]) ? self::convertController($parts[1]) : $defaultController,
-                            isset($parts[2]) ? self::convertAction($parts[2]) : $defaultAction,
-                            array_slice($parts, 3)
-                        ];
-                    }
-                }
-                // 处理简单模式路由
-                else {
-                    $regex = $pattern;
-                    foreach (self::$simplePatterns as $key => $replacement) {
-                        $regex = str_replace($key, $replacement, $regex);
-                    }
-                    
-                    if (preg_match('#^' . $regex . '$#', $uri, $matches)) {
-                        array_shift($matches); // 移除完整匹配
-                        $parts = explode('/', $target);
-                        
-                        // 替换目标中的参数
-                        foreach ($matches as $i => $match) {
-                            $target = str_replace('$' . ($i + 1), $match, $target);
-                        }
-                        
-                        $parts = explode('/', $target);
-                        return [
-                            isset($parts[0]) ? strtolower($parts[0]) : $defaultModule,
-                            isset($parts[1]) ? self::convertController($parts[1]) : $defaultController,
-                            isset($parts[2]) ? self::convertAction($parts[2]) : $defaultAction,
-                            array_slice($parts, 3)
-                        ];
-                    }
-                }
-            }
-        }
-        
-        // 如果没有匹配的路由规则，使用默认的解析方式
-        $parts = explode('/', $uri);
-        
-        // 智能解析：尝试判断是否省略了默认模块
-        if (count($parts) >= 1) {
-            // 检查第一个部分是否是已存在的模块
-            $possibleModule = strtolower($parts[0]); // 模块名转小写进行检查
-            
-            // 使用绝对路径检查模块目录
-            if (defined('APP_PATH')) {
-                $modulePath = APP_PATH . $possibleModule;
-            } else {
-                // 如果 APP_PATH 未定义，使用相对路径
-                $modulePath = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . $possibleModule;
-            }
-            
-
-            
-            // 如果模块目录存在，按正常方式解析
-            if (is_dir($modulePath)) {
-                return [
-                    $possibleModule, // 使用小写的模块名
-                    isset($parts[1]) ? self::convertController($parts[1]) : $defaultController, // 控制器名StudlyCase
-                    isset($parts[2]) ? self::convertAction($parts[2]) : $defaultAction, // 方法名camelCase
-                    array_slice($parts, 3)
-                ];
-            } else {
-                // 如果模块目录不存在，假设省略了默认模块，将第一个部分作为控制器
-                return [
-                    $defaultModule,
-                    isset($parts[0]) ? self::convertController($parts[0]) : $defaultController, // 控制器名StudlyCase
-                    isset($parts[1]) ? self::convertAction($parts[1]) : $defaultAction, // 方法名camelCase
-                    array_slice($parts, 2)
-                ];
-            }
-        }
-        
-        return [
-            $defaultModule,
-            $defaultController,
-            $defaultAction,
-            []
-        ];
-    }
-} 
+}

@@ -90,6 +90,25 @@ class Exception
 			// 日志记录失败时的处理
 		}
 
+		// 404：路由未命中或目标不存在，返回正确的 404 状态码（而非一律 500）
+		if ($exception->getCode() === 404) {
+			http_response_code(404);
+			if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
+				strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+				header('Content-Type: application/json');
+				echo json_encode(['error' => 'Not Found', 'code' => 404]);
+				exit;
+			}
+			header('Content-Type: text/html; charset=utf-8');
+			$notFoundTemplate = CORE_PATH . 'tpl/404.php';
+			if (file_exists($notFoundTemplate)) {
+				include $notFoundTemplate;
+			} else {
+				echo '<h1>404 Not Found</h1><p>页面不存在</p>';
+			}
+			exit;
+		}
+
 		// 设置HTTP状态码
 		http_response_code(500);
 

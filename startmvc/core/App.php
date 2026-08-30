@@ -108,24 +108,6 @@ class App
 	}
 
 	/**
-	 * 配置控制器的路径
-	 */
-	private static function startApp($module, $controller, $action, $argv)
-	{
-		// 先定义常量，因为 View 类的构造函数需要用到
-		if (!defined('MODULE')) define('MODULE', $module);
-		if (!defined('CONTROLLER')) define('CONTROLLER', $controller);
-		if (!defined('ACTION')) define('ACTION', $action);
-		
-		$controller = APP_NAMESPACE . "\\{$module}\\controller\\{$controller}Controller";
-		if (!class_exists($controller)) {
-			throw new \Exception($controller.'控制器不存在');
-		}
-		$action .= 'Action';
-		return Loader::make($controller, $action, $argv);
-	}
-
-	/**
 	 * 注册默认中间件
 	 */
 	protected function registerMiddleware()
@@ -171,23 +153,43 @@ class App
 			$uri = trim($uri, '/');
 		}
 
-		// 使用Router类的parse方法解析URI（Router会自动处理URL后缀）
-		$parseResult = Router::parse($uri);
-
-		if ($parseResult && count($parseResult) >= 3) {
-			$module = $parseResult[0];
-			$controller = $parseResult[1];
-			$action = $parseResult[2];
-			$params = isset($parseResult[3]) ? $parseResult[3] : [];
-		} else {
-			// 如果解析失败，使用默认值
-			$module = Config::get('common.default_module', 'home');
-			$controller = Config::get('common.default_controller', 'Index');
-			$action = Config::get('common.default_action', 'index');
-			$params = [];
+		// 剥离URL后缀（如 .html），规则与 Router::parse 一致，保证路由表匹配不受后缀影响
+		$urlSuffix = config('common.url_suffix') ?: '';
+		if ($urlSuffix !== '' && strlen($uri) > strlen($urlSuffix)) {
+			$suffixPos = strrpos($uri, $urlSuffix);
+			if ($suffixPos !== false && $suffixPos === strlen($uri) - strlen($urlSuffix)) {
+				$uri = substr($uri, 0, $suffixPos);
+			}
 		}
 
-		// 使用原有的startApp方法
-		return self::startApp($module, $controller, $action, $params);
+		$method = strtoupper($_SERVER['REQUEST_METHOD']);
+		// 表单方法伪装：POST + _method 模拟 PUT/DELETE/PATCH
+		if ($method === 'POST' && isset($_POST['_method'])) {
+			$method = strtoupper((string)$_POST['_method']);
+		}
+
+		// 加载路由定义并优先匹配（流式 API 与旧配置数组共用一张路由表）
+		Router::loadRoutes();
+		$match = Router::match($uri, $method);
+		if ($match !== null) {
+			list($route, $params) = $match;
+			// 路由级中间件包裹控制器执行
+			return Middleware::pipeline(
+				$route['middleware'] ?? [],
+				new Request(),
+				function ($request) use ($route, $params) {
+					return Router::resolveAction($route['action'], $params);
+				}
+			);
+		}
+
+		// 无路由匹配：按 模块/控制器/方法 结构解析 URL（解析后目标不存在由 resolveAction 抛 404）
+		$parseResult = Router::parse($uri);
+		if ($parseResult && count($parseResult) >= 3) {
+			list($module, $controller, $action, $params) = $parseResult;
+			return Router::resolveAction("{$module}/{$controller}/{$action}", $params);
+		}
+
+		throw new \Exception('页面不存在: /' . $uri, 404);
 	}
 }

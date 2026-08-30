@@ -9,92 +9,43 @@
  */
 
 /*
-路由配置说明：
-支持两种路由规则格式：
-1. 简便方法：使用占位符 (:num)、(:any)、(:alpha) 等
-2. 正则表达式：使用完整的正则表达式模式
+自定义路由配置（唯一的路由定义文件，两种写法可混用，进入同一张路由表）
 
-占位符说明：
-- (:num)     匹配数字
-- (:any)     匹配任意字符
-- (:alpha)   匹配字母
-- (:alnum)   匹配字母和数字
+一、流式 API（推荐）：在 return 之前直接调用 Router 静态方法
 
-注意：框架会自动处理 .html 后缀，无需在路由中指定
+Router::get('/', 'Home/Index/index');
+Router::post('/login', 'Home/User/login');
+Router::put('/user/:id', 'Home/User/update');   // 另有 post/put/patch/delete/any
 
-    // ==================== 简便方法路由规则 ====================
-    
-    // 1. 数字参数路由
-    ['article_(:num)', 'home/article/index/$1'],              // article_123 -> home/article/index/123
-    ['category/(:num)', 'home/category/index/$1'],            // category/123 -> home/category/index/123
-    ['news/(:num)', 'home/news/detail/$1'],                   // news/123 -> home/news/detail/123
-    ['user/(:num)', 'home/user/profile/$1'],                  // user/123 -> home/user/profile/123
-    
-    // 2. 多级路径路由
-    ['article/detail/(:num)', 'home/article/detail/$1'],      // article/detail/123 -> home/article/detail/123
-    ['product/(:alpha)/(:num)', 'home/product/show/$1/$2'],   // product/phone/123 -> home/product/show/phone/123
-    ['blog/(:any)/(:num)', 'home/blog/detail/$1/$2'],         // blog/tech/123 -> home/blog/detail/tech/123
-    
-    // 3. 字母参数路由
-    ['tag/(:alpha)', 'home/tag/index/$1'],                    // tag/tech -> home/tag/index/tech
-    ['lang/(:alpha)', 'home/index/lang/$1'],                  // lang/en -> home/index/lang/en
-    
-    // 4. 任意字符路由
-    ['search/(:any)', 'home/search/index/$1'],                // search/keyword -> home/search/index/keyword
-    ['page/(:any)', 'home/page/show/$1'],                     // page/about -> home/page/show/about
-    
-    // 5. 隐藏默认模块路由（将所有请求映射到home模块）
-    // ['(:any)', 'home/$1'],                                 // 任意路径 -> home/任意路径
-    
-    
-    // ==================== 正则表达式路由规则 ====================
-    
-    // 1. 精确匹配
-    ['/^about$/', 'home/index/about'],                        // 精确匹配 about
-    ['/^contact$/', 'home/index/contact'],                    // 精确匹配 contact
-    
-    // 2. 数字参数匹配
-    ['/^article_(\d+)$/', 'home/article/index/$1'],           // article_123
-    ['/^column\/(\d+)$/', 'home/column/index/$1'],            // column/123
-    ['/^category\/(\d+)$/', 'home/category/index/$1'],        // category/123
-    
-    // 3. 多参数匹配
-    ['/^product\/([a-zA-Z]+)\/(\d+)$/', 'home/product/detail/$1/$2'],  // product/phone/123
-    ['/^blog\/([^\/]+)\/(\d+)$/', 'home/blog/detail/$1/$2'],           // blog/tech/123
-    
-    // 4. 可选参数匹配
-    ['/^list\/(\d+)?$/', 'home/list/index/$1'],               // list 或 list/123
-    ['/^archive\/(\d{4})\/(\d{1,2})?$/', 'home/archive/index/$1/$2'], // archive/2023 或 archive/2023/12
-    
-    // 5. 复杂路径匹配
-    ['/^([^\/]+)\/([^\/]+)\/(.+)$/', 'home/$1/$2/$3'],        // 三级路径映射
-    ['/^([^\/]+)\/(\d+)$/', 'home/$1/index/$2'],              // 控制器/数字ID
-    ['/^([^\/]+)$/', 'home/$1/index'],                        // 单级路径映射
-    
-    // 6. 特殊格式匹配
-    ['/^api\/v(\d+)\/([^\/]+)$/', 'api/v$1/$2'],              // api/v1/users -> api/v1/users
-    ['/^(\d+)(.*?)$/', 'home/goods/index/$1'],                // 数字开头的路径
-    ['/^download\/([^\/]+)\.([a-z]+)$/', 'home/download/file/$1/$2'], // download/file.pdf
-    
-    
-*/
+// 路由组：统一前缀 + 中间件（中间件用 config/middleware.php 中的别名或完整类名）
+Router::group(['prefix' => 'admin', 'middleware' => ['auth']], function() {
+    Router::get('/dashboard', 'Admin/Index/dashboard');
+});
+
+// RESTful资源路由：一行生成 index/create/store/show/edit/update/destroy 7条路由
+Router::resource('/article', 'Home/Article');
+
+// 闭包路由，匹配参数按序传入
+Router::get('/welcome/:name', function($name) {
+    return 'hello ' . $name;
+});
+
+// 单条路由应用中间件
+Router::get('/admin/setting', 'Admin/Index/setting', ['log']);
+
+二、数组配置（兼容旧版）：目标中的 $1、$2 会被替换为匹配参数
 
 return [
-    
-    // 文章系统
-    // ['article', 'home/article/index'],                     // 文章列表
-    // ['article/(:num)', 'home/article/detail/$1'],          // 文章详情
-    // ['article/add', 'home/article/add'],                   // 添加文章
-    // ['article/edit/(:num)', 'home/article/edit/$1'],       // 编辑文章
-    
-    // 用户系统
-    // ['login', 'home/user/login'],                          // 登录页面
-    // ['register', 'home/user/register'],                    // 注册页面
-    // ['profile/(:num)', 'home/user/profile/$1'],            // 用户资料
-    
-    // 商品系统
-    // ['goods', 'home/goods/index'],                         // 商品列表
-    // ['goods/(:num)', 'home/goods/detail/$1'],              // 商品详情
-    // ['cart', 'home/cart/index'],                           // 购物车
-    // ['order/(:num)', 'home/order/detail/$1'],              // 订单详情
+    ['about', 'home/index/about'],                       // 精确匹配
+    ['article/(:num)', 'home/article/detail/$1'],        // /article/232
+    ['/^blog\/(\w+)\/(\d+)$/', 'home/blog/view/$1/$2'],  // 原生正则
 ];
+
+说明：
+- 占位符：流式API用 :id/:num/:slug/:alpha/:alphanum/:any（Router::pattern 可自定义），
+  数组用 (:num)/(:any)/(:alpha)/(:alnum)，也支持 '/^...$/' 原生正则
+- 优先级：精确匹配 > 正则路由 > 内置模式
+- URL后缀（如 .html）在路由匹配前自动剥离，规则中无需写后缀
+*/
+
+return [];
