@@ -48,7 +48,13 @@ class App
 		});
 
 		// 输出响应内容
-		if (is_string($response)) {
+		if ($response instanceof Response) {
+			// 控制器返回 Response 对象时统一交给它发送（状态码/响应头/内容）
+			$response->send();
+			if (config('trace')) {
+				self::outputTrace();
+			}
+		} elseif (is_string($response)) {
 			echo $response;
 			// 对于字符串响应，在末尾添加 trace 信息
 			if (config('trace')) {
