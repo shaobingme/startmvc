@@ -147,22 +147,23 @@ function dump($var, $label = null, $echo = true)
 
 /**
  * 配置文件函数
- * @param string|array $key 配置键名或配置数组
- * @param mixed $value 配置值，不提供则为获取配置
+ * @param string|array|null $key 配置键名；传数组则为批量设置配置
+ * @param mixed $default 获取配置时的默认值（仅读取时生效）
  * @return mixed
+ *
+ * 用法：
+ *   config()                      获取全部配置
+ *   config('debug')               获取单个配置
+ *   config('db.host', 'localhost') 获取配置，不存在时返回默认值
+ *   config(['debug' => true])     批量设置配置
  */
-function config($key = null, $value = null)
+function config($key = null, $default = null)
 {
 	// 获取所有配置
 	if ($key === null) {
 		return \startmvc\core\Config::get();
 	}
-	
-	// 加载配置文件
-	if (is_string($key) && strpos($key, '@') === 0) {
-		return \startmvc\core\Config::load(substr($key, 1));
-	}
-	
+
 	// 设置多个配置
 	if (is_array($key)) {
 		foreach ($key as $k => $v) {
@@ -170,14 +171,16 @@ function config($key = null, $value = null)
 		}
 		return true;
 	}
-	
-	// 设置单个配置
-	if (func_num_args() > 1) {
-		return \startmvc\core\Config::set($key, $value);
+
+	// 加载配置文件
+	if (is_string($key) && strpos($key, '@') === 0) {
+		return \startmvc\core\Config::load(substr($key, 1));
 	}
-	
-	// 获取配置
-	return \startmvc\core\Config::get($key);
+
+	// 获取配置（第二参数为默认值）
+	// 注意：旧版两参数会被误判为"写配置"并返回 true，导致所有带默认值的读取
+	// 恒为真值（cache 助手、Exception 调试判断等均因此出过 bug），已废弃该用法
+	return \startmvc\core\Config::get($key, $default);
 }
 
 /**

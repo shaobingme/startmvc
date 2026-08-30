@@ -39,7 +39,7 @@
     <div class="error-container">
         <h1>系统错误</h1>
         <div class="error-message">
-            <?php if (config('debug', true)): ?>
+            <?php if (config('debug', false)): ?>
                 <p><strong>错误信息：</strong><?php echo htmlspecialchars($e->getMessage()); ?></p>
                 <p><strong>文件位置：</strong><?php echo htmlspecialchars($e->getFile()); ?> 行号：<?php echo $e->getLine(); ?></p>
                 <div class="error-trace">

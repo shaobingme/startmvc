@@ -94,16 +94,25 @@ class Exception
 		http_response_code(500);
 
 		// 获取调试模式设置
-		$debug = config('debug', true); // 默认为true，确保在配置不存在时也能看到错误
+		// 默认为 false：配置文件丢失时按生产环境处理，避免意外开启调试导致信息泄露
+		$debug = config('debug', false);
 
 		// AJAX请求处理
-		if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+		if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
 			strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
 			header('Content-Type: application/json');
-			echo json_encode([
-				'error' => $exception->getMessage(),
-				'trace' => $exception->getTraceAsString()
-			]);
+			// 详细信息（错误消息+堆栈）仅在调试模式返回；
+			// 生产环境返回通用提示，防止泄露 SQL、文件路径、数据库账号等敏感内容
+			if ($debug) {
+				echo json_encode([
+					'error' => $exception->getMessage(),
+					'trace' => $exception->getTraceAsString()
+				]);
+			} else {
+				echo json_encode([
+					'error' => '服务器内部错误，请稍后再试'
+				]);
+			}
 			exit;
 		}
 
