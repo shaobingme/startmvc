@@ -22,14 +22,15 @@ class Loader
 	{
 		try {
 			$class = new \ReflectionClass($controller);
-			$instance = $class->newInstanceArgs();
-			
+			// 控制器实例化走容器，构造函数中的类类型依赖会被自动递归解析
+			$instance = Container::getInstance()->make($controller);
+
 			if (!method_exists($instance, $action)) {
 				throw new \Exception("方法{$action}不存在");
 			}
-			
+
 			return call_user_func_array([$instance, $action], $argv);
-		} catch (\ReflectionException $e) {
+		} catch (\Exception $e) {
 			throw new \Exception("控制器实例化失败：" . $e->getMessage());
 		}
 	}
