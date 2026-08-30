@@ -24,6 +24,12 @@ class App
 	}
 	public function run()
 	{
+		// CLI 环境不执行 HTTP 分发（$_SERVER['REQUEST_URI'] 等不可用），
+		// 命令行脚本加载框架后可直接使用 Config/Db/Cache 等组件
+		if (PHP_SAPI === 'cli') {
+			return;
+		}
+
 		// 记录开始时间和内存
 		$beginTime = microtime(true);
 		$beginMem = memory_get_usage();

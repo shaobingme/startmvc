@@ -10,7 +10,7 @@
 
 defined('ENV') or define('ENV', 'development');  // 可以是 development 或 production
 defined('DS') or define('DS', DIRECTORY_SEPARATOR);
-defined('ROOT_PATH') or define('ROOT_PATH', dirname(__DIR__));
+defined('ROOT_PATH') or define('ROOT_PATH', dirname(__DIR__) . DS);  // 兜底定义必须带末尾分隔符，否则 CLI 直接加载 boot.php 时所有路径拼接错误
 
 if (version_compare(PHP_VERSION , '7.2', '<')) {
 	die('程序要求PHP7+环境版本，当前环境为PHP' . PHP_VERSION . ',请升级服务器环境');
@@ -18,8 +18,8 @@ if (version_compare(PHP_VERSION , '7.2', '<')) {
 
 
 //版本号
-define('SM_VERSION', '2.8.1');
-define('SM_UPDATE', '20260830');
+define('SM_VERSION', '2.8.2');
+define('SM_UPDATE', '20260831');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');
 //应用目录
@@ -56,9 +56,14 @@ $config = \startmvc\core\Config::load('common');
 $timezone = $config['timezone'] ?? 'Asia/Shanghai';
 date_default_timezone_set($timezone);
 
-// 启动会话
-\startmvc\core\Session::start();
+// CLI 环境无 Cookie/HTTP 语义，跳过会话启动（避免无意义副作用，如定时 session_regenerate_id）
+if (PHP_SAPI !== 'cli') {
+    \startmvc\core\Session::start();
+}
 
-// 创建应用实例并运行
+// 创建应用实例；CLI 下不执行 HTTP 分发，框架组件（Config/Db/Cache 等）仍可正常使用，
+// 将来 CLI 工具（迁移、队列等）从独立命令入口接入
 $app = new \startmvc\core\App();
-$app->run();
+if (PHP_SAPI !== 'cli') {
+    $app->run();
+}
