@@ -31,6 +31,11 @@ return [
         'cookie_lifetime' => 7200,       // 会话Cookie生存时间（秒）
         'gc_maxlifetime' => 7200,        // 垃圾回收时间（秒）
     ],
+    // Cookie安全配置（Cookie::set/delete 的默认安全策略，可被调用参数覆盖）
+    'cookie' => [
+        'cookie_secure' => 'auto',       // Cookie仅通过HTTPS传输：true强制开启 / false关闭 / 'auto'自动检测HTTPS
+        'cookie_samesite' => 'Lax',      // 防CSRF：Lax / Strict / None（None必须配合secure）
+    ],
     // CSRF 防护配置
     'csrf' => [
         'token_lifetime' => 3600,        // Token有效期（秒）
