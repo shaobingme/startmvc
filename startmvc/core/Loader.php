@@ -14,8 +14,8 @@ class Loader
 {
 	public static function getInstance($className)
 	{
-		$paramArr = self::getMethodParams($className);
-		return (new \ReflectionClass($className))->newInstanceArgs($paramArr);
+		// 统一走容器：共享绑定、单例缓存、循环依赖检测与直接反射注入保持一致
+		return Container::getInstance()->make($className);
 	}
 
 	public static function make($controller, $action, $argv)
@@ -35,28 +35,6 @@ class Loader
 		// 方法调用在 try 之外：动作内部抛出的异常（如 HttpResponseException）
 		// 必须原样向上传播，交由 App::run 统一处理，不得在此包装
 		return call_user_func_array([$instance, $action], $argv);
-	}
-
-	protected static function getMethodParams($className, $methodsName = '__construct')
-	{
-		$class = new \ReflectionClass($className);
-		$paramArr = [];
-		if ($class->hasMethod($methodsName)) {
-			$method = $class->getMethod($methodsName);
-			$params = $method->getParameters();
-			if (count($params) > 0) {
-				foreach ($params as $key => $param) {
-					// 使用 getType() 代替 getClass()
-					$type = $param->getType();
-					if ($type && !$type->isBuiltin() && $type instanceof \ReflectionNamedType) {
-						$paramClassName = $type->getName();
-						$args = self::getMethodParams($paramClassName);
-						$paramArr[] = (new \ReflectionClass($paramClassName))->newInstanceArgs($args);
-					}
-				}
-			}
-		}
-		return $paramArr;
 	}
 
 	protected static function filter($doc)
