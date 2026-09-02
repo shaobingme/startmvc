@@ -21,20 +21,20 @@ class Loader
 	public static function make($controller, $action, $argv)
 	{
 		try {
-			$class = new \ReflectionClass($controller);
 			// 控制器实例化走容器，构造函数中的类类型依赖会被自动递归解析
 			$instance = Container::getInstance()->make($controller);
-
-			if (!method_exists($instance, $action)) {
-				// 方法不存在按 404 处理（路由目标错误），而非 500 服务器错误
-				throw new \Exception("方法{$action}不存在", 404);
-			}
-
-			return call_user_func_array([$instance, $action], $argv);
 		} catch (\Exception $e) {
-			// 保留原始异常状态码（如方法不存在时的 404），供异常处理器映射 HTTP 状态码
 			throw new \Exception("控制器实例化失败：" . $e->getMessage(), $e->getCode(), $e);
 		}
+
+		if (!method_exists($instance, $action)) {
+			// 方法不存在按 404 处理（路由目标错误），而非 500 服务器错误
+			throw new \Exception("方法{$action}不存在", 404);
+		}
+
+		// 方法调用在 try 之外：动作内部抛出的异常（如 HttpResponseException）
+		// 必须原样向上传播，交由 App::run 统一处理，不得在此包装
+		return call_user_func_array([$instance, $action], $argv);
 	}
 
 	protected static function getMethodParams($className, $methodsName = '__construct')

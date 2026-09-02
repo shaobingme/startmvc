@@ -49,9 +49,15 @@ class App
 		$request = new Request();
 
 		// 通过中间件管道处理请求
-		$response = Middleware::run($request, function($request) {
-			return $this->handleRequest();
-		});
+		// 控制器响应方法（json/redirect/success/error 等）通过响应异常中断执行，
+		// 在此统一取出 Response 发送，保证不使用 exit() 截断框架收尾流程
+		try {
+			$response = Middleware::run($request, function($request) {
+				return $this->handleRequest();
+			});
+		} catch (HttpResponseException $e) {
+			$response = $e->getResponse();
+		}
 
 		// 输出响应内容
 		if ($response instanceof Response) {
@@ -146,9 +152,11 @@ class App
 		// 移除前后的斜杠
 		$uri = trim($uri, '/');
 
-		// 过滤入口文件名（如index.php）
+		// 过滤入口文件名（如 index.php/user/1 → user/1）
+		// 注意：PHP 内置服务器等 SAPI 下 SCRIPT_NAME 等于请求路径本身，
+		// 仅当其以 .php 结尾时才视为入口文件名，避免把整个 URI 剥空
 		$scriptName = basename($_SERVER['SCRIPT_NAME']);
-		if (strpos($uri, $scriptName) === 0) {
+		if (substr($scriptName, -4) === '.php' && strpos($uri, $scriptName) === 0) {
 			$uri = substr($uri, strlen($scriptName));
 			$uri = trim($uri, '/');
 		}

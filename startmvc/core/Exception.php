@@ -84,6 +84,12 @@ class Exception
 	 */
 	public static function handleException(\Throwable $exception)
 	{
+		// 响应异常：直接发送其携带的 Response（响应方法在管道之外被调用时的兜底出口）
+		if ($exception instanceof HttpResponseException) {
+			$exception->getResponse()->send();
+			exit;
+		}
+
 		try {
 			self::logException($exception);
 		} catch (\Exception $e) {

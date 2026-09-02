@@ -105,31 +105,38 @@ abstract class Controller
 			];
 			$this->json($data);
 		}else{
+			// 跳转页渲染为字符串装入 Response，通过响应异常交给框架统一发送
+			$response = new Response();
+			ob_start();
 			include __DIR__.DS.'tpl/jump.php';
-			exit();
+			$response->setContent(ob_get_clean());
+			throw new HttpResponseException($response);
 		}
 
 	}
 
 	/**
-	 * json方法
+	 * json方法：构建 JSON Response 并以响应异常中断执行
+	 * （异常由 App::run 统一捕获发送，保留"调用即终止"的语义）
 	 */
 	protected function json($data)
 	{
-		header('Content-Type:application/json; charset=utf-8');
-		//echo json_encode($data, JSON_UNESCAPED_UNICODE);
-		exit(json_encode($data, JSON_UNESCAPED_UNICODE));
+		$response = new Response();
+		$response->setHeader('Content-Type', 'application/json; charset=utf-8')
+			->setContent(json_encode($data, JSON_UNESCAPED_UNICODE));
+		throw new HttpResponseException($response);
 	}
 
 
 	/**
-	 * 跳转
+	 * 跳转：构建带 Location 头的 Response 并以响应异常中断执行
 	 */
 	protected function redirect($url='')
 	{
 		$url=$url?:'/';
-		header('location:' . $url);
-		exit();
+		$response = new Response();
+		$response->setStatusCode(302)->setHeader('Location', $url);
+		throw new HttpResponseException($response);
 	}
 	/**
 	 * 404方法
