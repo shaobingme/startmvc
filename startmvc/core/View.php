@@ -77,6 +77,11 @@ class view{
 		if (isset($viewConfig['suffix']) && !empty($viewConfig['suffix'])) {
 			$this->tpl_suffix = $viewConfig['suffix'];
 		}
+
+		// 读取模板安全模式配置，开启后禁用 {php}、{echo} 标签
+		if (isset($viewConfig['tpl_safe_mode']) && $viewConfig['tpl_safe_mode']) {
+			$this->tpl_safe_mode = true;
+		}
 	}
 
 	//模板赋值
@@ -278,6 +283,10 @@ class view{
 		$content = preg_replace_callback(
 			'/{echo\s+([^}]+)}/i',
 			function ($matches) {
+				// 安全模式下禁用 {echo} 标签，防止任意 PHP 表达式执行
+				if ($this->tpl_safe_mode) {
+					return '';
+				}
 				return '<?php echo ' . $this->compilePhpExpression($matches[1]) . '; ?>';
 			},
 			$content
@@ -290,6 +299,11 @@ class view{
 			},
 			$content
 		);
+
+		// 安全模式下剔除 {php} 标签，禁止模板内执行任意 PHP 代码
+		if ($this->tpl_safe_mode) {
+			$content = preg_replace('/{php\s+.*?}/is', '', $content);
+		}
 
 		return preg_replace(array_keys(self::$rules), self::$rules, $content);
 	}
@@ -494,6 +508,18 @@ class view{
 	}
 	
 	/**
+	 * 校验模板文件路径是否位于指定目录内，防止 ../ 路径穿越
+	 */
+	protected function isValidTemplatePath($tplFile, $baseDir) {
+		$realPath = realpath($tplFile);
+		$realDir = realpath($baseDir);
+		if ($realPath === false || $realDir === false) {
+			return false;
+		}
+		return strpos($realPath, $realDir . DS) === 0;
+	}
+
+	/**
 	 * 处理模板中的include标签，将被包含文件的内容合并到主模板中
 	 */
 	protected function parseIncludeTags($content) {
@@ -523,18 +549,20 @@ class view{
 		
 		// 检查是否指定了模块 {include common/header|Admin}
 		$tplFile = '';
+		$baseDir = '';
 		if (strpos($name, '|') !== false) {
 			list($path, $module) = explode('|', $name, 2);
 			$module = trim($module);
 			$path = trim($path);
-			
+
 			// 检查是否已经包含文件扩展名
 			$fileExtension = pathinfo($path, PATHINFO_EXTENSION);
-			
+
 			// 构建跨模块模板路径
 			$theme = config('theme') ? config('theme') . DS : '';
 			$moduleDir = APP_PATH . strtolower($module) . DS . 'view' . DS . $theme;
-			
+			$baseDir = $moduleDir;
+
 			if (!empty($fileExtension)) {
 				$tplFile = $moduleDir . $path;
 			} else {
@@ -543,33 +571,35 @@ class view{
 		} else {
 			// 使用当前模块
 			$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
+			$baseDir = $this->tpl_template_dir;
 			if (!empty($fileExtension)) {
 				$tplFile = $this->tpl_template_dir . $name;
 			} else {
 				$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
 			}
 		}
-		
-		if (file_exists($tplFile)) {
-			// 读取包含文件内容
-			$content = file_get_contents($tplFile);
-			
-			// 递归处理嵌套的include标签
-			$content = $this->parseIncludeTags($content);
-			
-			// 如果有参数，将参数作为变量添加到内容中
-			if (!empty($params)) {
-				$paramCode = '';
-				foreach ($params as $key => $value) {
-					$paramCode .= '<?php $' . $key . ' = ' . var_export($value, true) . '; ?>';
-				}
-				$content = $paramCode . $content;
-			}
-			
-			return $content;
+
+		// 校验路径未穿越出模板目录
+		if (!file_exists($tplFile) || !$this->isValidTemplatePath($tplFile, $baseDir)) {
+			return '<!-- 包含文件 ' . $name . ' 不存在 -->';
 		}
-		
-		return '<!-- 包含文件 ' . $name . ' 不存在 -->';
+
+		// 读取包含文件内容
+		$content = file_get_contents($tplFile);
+
+		// 递归处理嵌套的include标签
+		$content = $this->parseIncludeTags($content);
+
+		// 如果有参数，将参数作为变量添加到内容中
+		if (!empty($params)) {
+			$paramCode = '';
+			foreach ($params as $key => $value) {
+				$paramCode .= '<?php $' . $key . ' = ' . var_export($value, true) . '; ?>';
+			}
+			$content = $paramCode . $content;
+		}
+
+		return $content;
 	}
 
 	// 获取被包含模板的内容（用于运行时）
@@ -586,18 +616,20 @@ class view{
 		}
 		// 检查是否指定了模块 {include common/header|Admin}
 		$tplFile = '';
+		$baseDir = '';
 		if (strpos($name, '|') !== false) {
 			list($path, $module) = explode('|', $name, 2);
 			$module = trim($module);
 			$path = trim($path);
-			
+
 			// 检查是否已经包含文件扩展名
 			$fileExtension = pathinfo($path, PATHINFO_EXTENSION);
-			
+
 			// 构建跨模块模板路径
 			$theme = config('theme') ? config('theme') . DS : '';
 			$moduleDir = APP_PATH . strtolower($module) . DS . 'view' . DS . $theme;
-			
+			$baseDir = $moduleDir;
+
 			if (!empty($fileExtension)) {
 				$tplFile = $moduleDir . $path;
 			} else {
@@ -606,45 +638,47 @@ class view{
 		} else {
 			// 使用当前模块
 			$fileExtension = pathinfo($name, PATHINFO_EXTENSION);
+			$baseDir = $this->tpl_template_dir;
 			if (!empty($fileExtension)) {
 				$tplFile = $this->tpl_template_dir . $name;
 			} else {
 				$tplFile = $this->tpl_template_dir . $name . $this->tpl_suffix;
 			}
 		}
-		
-		if (file_exists($tplFile)) {
-			// 读取包含文件内容
-			$content = file_get_contents($tplFile);
-			
-			// 递归编译包含文件中的包含标签
-			$content = $this->parseIncludeTags($content);
-			
-			// 编译其他模板标签
-			$content = $this->compileTemplateContent($content);
-			
-			// 创建临时文件以执行
-			$tempFile = $this->tpl_compile_dir . md5($name . microtime(true)) . '.php';
-			file_put_contents($tempFile, $content);
-			
-			// 合并当前变量和传递的参数
-			$mergedVars = array_merge(self::$vars, $params);
-			
-			// 捕获输出
-			ob_start();
-			extract($mergedVars); // 提取变量到当前作用域
-			include $tempFile;
-			$output = ob_get_clean();
-			
-			// 清理临时文件
-			@unlink($tempFile);
-			
-			return $output;
+
+		// 校验路径未穿越出模板目录
+		if (!file_exists($tplFile) || !$this->isValidTemplatePath($tplFile, $baseDir)) {
+			return '<!-- 包含文件 ' . $name . ' 不存在 -->';
 		}
-		
-		return '<!-- 包含文件 ' . $name . ' 不存在 -->';
+
+		// 读取包含文件内容
+		$content = file_get_contents($tplFile);
+
+		// 递归编译包含文件中的包含标签
+		$content = $this->parseIncludeTags($content);
+
+		// 编译其他模板标签
+		$content = $this->compileTemplateContent($content);
+
+		// 创建临时文件以执行
+		$tempFile = $this->tpl_compile_dir . md5($name . microtime(true)) . '.php';
+		file_put_contents($tempFile, $content);
+
+		// 合并当前变量和传递的参数
+		$mergedVars = array_merge(self::$vars, $params);
+
+		// 捕获输出
+		ob_start();
+		extract($mergedVars); // 提取变量到当前作用域
+		include $tempFile;
+		$output = ob_get_clean();
+
+		// 清理临时文件
+		@unlink($tempFile);
+
+		return $output;
 	}
-	
+
 	// 清除模板缓存
 	public function clearCache($name = null) {
 		if ($name === null) {
