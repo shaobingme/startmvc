@@ -80,18 +80,6 @@ function env($key, $default = null)
 }
 
 /**
- * HTML 转义助手函数，用于输出侧防止 XSS
- *
- * @param mixed $value 待转义的值
- * @param bool $doubleEncode 是否对已转义实体再次转义
- * @return string
- */
-function e($value, $doubleEncode = true)
-{
-	return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8', $doubleEncode);
-}
-
-/**
  * 语言包调用
  *
  * @param string $key
@@ -291,29 +279,9 @@ function db($table = '', $config = [])
 
 /**
  * 获取客户端的真实IP地址
+ * 委托给 Request::ip()：仅当 REMOTE_ADDR 命中可信代理列表（config: trusted_proxies）
+ * 时才解析 X-Forwarded-For，否则返回 REMOTE_ADDR，防止伪造IP。
  */
 function get_ip() {
-	// 优先检查HTTP_X_FORWARDED_FOR，因为它可能包含多个IP，我们取第一个非未知的IP
-	$ip = null;
-	if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-		$ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-		foreach ($ips as $tmp) {
-			$ip = trim($tmp);
-			if ($ip !== 'unknown') {
-				break;
-			}
-		}
-	}
-
-	// 如果没有通过HTTP_X_FORWARDED_FOR获取到IP，尝试其他可能的服务器变量
-	if (!$ip) {
-		$ip = $_SERVER['REMOTE_ADDR'] ?? $_SERVER['HTTP_CLIENT_IP'] ?? $_SERVER['HTTP_CDN_SRC_IP'] ?? '0.0.0.0';
-	}
-
-	// 验证IP地址格式，如果不是有效的IPv4或IPv6，返回默认值
-	if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_IPV6)) {
-		$ip = '0.0.0.0';
-	}
-
-	return $ip;
+	return \startmvc\core\Request::ip();
 }

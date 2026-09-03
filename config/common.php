@@ -21,6 +21,9 @@ return [
     'locale'  => 'zh_cn',	//指定默认语言，小写
     'db_auto_connect'  => true,	//是否开启数据库自动连接
     'theme'  => '',	//指定模板子目录，方便多风格使用，为空时模板文件在view下
+    // 可信代理IP列表：仅当 REMOTE_ADDR 命中此列表时才信任 X-Forwarded-For（防止伪造IP）
+    // 支持精确IP和IPv4 CIDR，如 ['127.0.0.1', '10.0.0.0/8', '172.16.0.0/12']
+    'trusted_proxies' => [],
     
     // Session安全配置
     'session' => [

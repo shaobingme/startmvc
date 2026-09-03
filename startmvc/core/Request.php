@@ -171,23 +171,78 @@ class Request
 
     /**
      * 获取客户端IP地址
+     * 仅当 REMOTE_ADDR 命中可信代理列表（config: trusted_proxies）时才解析 X-Forwarded-For，
+     * 且从右向左取第一个非可信代理的地址（最右侧由最近的代理追加，客户端无法伪造），
+     * 否则一律返回 REMOTE_ADDR，防止通过伪造请求头绕过登录日志、限流、审计。
      * @return string
      */
     public static function ip()
     {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-        
-        if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && preg_match_all('#\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}#s', $_SERVER['HTTP_X_FORWARDED_FOR'], $match)) {
-            foreach ($match[0] as $xip) {
-                if (!preg_match('#^(10|172\.16|192\.168)\.#', $xip)) {
-                    $ip = $xip;
-                    break;
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        $trustedProxies = (array)Config::get('trusted_proxies', []);
+        if (empty($trustedProxies) || !self::isTrustedProxy($remoteAddr, $trustedProxies)) {
+            return $remoteAddr;
+        }
+
+        // 请求来自可信代理：从 X-Forwarded-For 最右侧向左找第一个非可信代理的有效IP
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $ips = array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']));
+            for ($i = count($ips) - 1; $i >= 0; $i--) {
+                $ip = $ips[$i];
+                if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+                    continue;
+                }
+                if (!self::isTrustedProxy($ip, $trustedProxies)) {
+                    return $ip;
                 }
             }
-        } elseif (isset($_SERVER['HTTP_CLIENT_IP'])) {
-            $ip = $_SERVER['HTTP_CLIENT_IP'];
         }
-        
-        return $ip;
+
+        // X-Forwarded-For 无有效值时回退到 REMOTE_ADDR
+        return $remoteAddr;
+    }
+
+    /**
+     * 判断IP是否命中可信代理列表（支持精确IP和IPv4 CIDR）
+     * @param string $ip 待检查的IP
+     * @param array $trustedProxies 可信代理列表
+     * @return bool
+     */
+    private static function isTrustedProxy($ip, array $trustedProxies)
+    {
+        foreach ($trustedProxies as $proxy) {
+            $proxy = trim($proxy);
+            if ($proxy === '') {
+                continue;
+            }
+            if (strpos($proxy, '/') !== false) {
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+                    && self::ipv4InCidr($ip, $proxy)) {
+                    return true;
+                }
+            } elseif (strcasecmp($proxy, $ip) === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 判断IPv4是否落在指定CIDR网段内
+     * @param string $ip IPv4地址
+     * @param string $cidr CIDR网段，如 10.0.0.0/8
+     * @return bool
+     */
+    private static function ipv4InCidr($ip, $cidr)
+    {
+        list($subnet, $bits) = explode('/', $cidr);
+        $bits = (int)$bits;
+        if ($bits < 0 || $bits > 32
+            || !filter_var($subnet, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        $mask = -1 << (32 - $bits);
+        return (ip2long($ip) & $mask) === (ip2long($subnet) & $mask);
     }
 }

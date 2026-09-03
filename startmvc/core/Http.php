@@ -20,7 +20,7 @@ class Http
      *                       - default: 默认值，当$val为null时使用
      *                       - type: 类型转换('string', 'int', 'float', 'array', 'bool')
      *                       - function: 要应用的函数，可以是函数名或函数名数组
-     *                       - filter: 是否过滤HTML特殊字符(默认为true)
+     *                       - filter: 是否过滤HTML特殊字符(默认为false；输入端不转义，输出时请使用e()函数)
      * @return mixed 处理后的值
      */
     public static function handling($val, $options = [])
@@ -57,10 +57,11 @@ class Http
         $function = isset($options['function']) ? $options['function'] : [];
         $function = is_array($function) ? $function : [$function];
         
-        // HTML特殊字符过滤
-        $filter = isset($options['filter']) ? (bool)$options['filter'] : true;
-        if ($filter && (is_string($val) || $type == 'string')) {
-            $function = array_merge(['htmlspecialchars'], $function);
+        // HTML特殊字符过滤：默认不转义（输出转义请使用e()函数），仅显式开启时生效；
+        // 数组值递归过滤，保证行为一致
+        $filter = isset($options['filter']) ? (bool)$options['filter'] : false;
+        if ($filter) {
+            $val = self::escape($val);
         }
         
         // 应用所有函数
@@ -84,6 +85,27 @@ class Http
             $val = call_user_func_array($fun_name, $parameter);
         }
         
+        return $val;
+    }
+
+    /**
+     * 递归转义HTML特殊字符（与e()助手函数语义一致）
+     *
+     * @param mixed $val
+     * @return mixed
+     */
+    private static function escape($val)
+    {
+        if (is_array($val)) {
+            $result = [];
+            foreach ($val as $k => $v) {
+                $result[self::escape((string)$k)] = self::escape($v);
+            }
+            return $result;
+        }
+        if (is_string($val)) {
+            return htmlspecialchars($val, ENT_QUOTES, 'UTF-8');
+        }
         return $val;
     }
 }
