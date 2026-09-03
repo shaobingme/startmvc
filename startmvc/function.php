@@ -80,6 +80,18 @@ function env($key, $default = null)
 }
 
 /**
+ * HTML 转义助手函数，用于输出侧防止 XSS
+ *
+ * @param mixed $value 待转义的值
+ * @param bool $doubleEncode 是否对已转义实体再次转义
+ * @return string
+ */
+function e($value, $doubleEncode = true)
+{
+	return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8', $doubleEncode);
+}
+
+/**
  * 语言包调用
  *
  * @param string $key

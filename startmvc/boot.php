@@ -18,7 +18,7 @@ if (version_compare(PHP_VERSION , '7.2', '<')) {
 
 
 //版本号
-define('SM_VERSION', '2.8.5');
+define('SM_VERSION', '2.8.6');
 define('SM_UPDATE', '20260903');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');

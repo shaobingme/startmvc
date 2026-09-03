@@ -18,6 +18,7 @@ class view{
 	public $tpl_compile_dir = '';
 	public $tpl_safe_mode = false;
 	public $tpl_cache_time = 0; // 缓存时间(秒)，0表示不缓存
+	public $tpl_auto_escape = true; // {$var} 默认 HTML 转义防止 XSS；原文输出用 {html $var} 或 {raw $var}
 	// 将 vars 改为静态属性，使所有视图实例共享变量
 	protected static $vars = array();
 	public $compiled_file='';
@@ -52,9 +53,8 @@ class view{
 
 		// comment tag (不会被解析)
 		'/{\/\*(.*?)\*\/}/s' => '',
-		
-		// 输出带HTML标签的内容
-		'/{html\s+\$(.*?)}/i' => '<?php echo isset($${1}) ? $${1} : \'\'; ?>',
+
+		// {html $var} / {raw $var} 原文输出，不转义（在 compileTemplateContent 中由回调处理，此处不再需要）
 	];
 
 	function __construct(){
@@ -76,6 +76,11 @@ class view{
 		$viewConfig = Config::load('view');
 		if (isset($viewConfig['suffix']) && !empty($viewConfig['suffix'])) {
 			$this->tpl_suffix = $viewConfig['suffix'];
+		}
+
+		// 自动转义开关，默认开启；关闭后 {$var} 恢复为原文输出
+		if (isset($viewConfig['auto_escape'])) {
+			$this->tpl_auto_escape = (bool)$viewConfig['auto_escape'];
 		}
 	}
 
@@ -235,6 +240,20 @@ class view{
 	 * 统一编译模板表达式标签
 	 */
 	protected function compileTemplateContent($content) {
+		// {html $var} / {raw $var}：显式声明原文输出，不转义
+		$content = preg_replace_callback(
+			'/\{(?:html|raw)\s+\$([^}\s]+)\}/i',
+			function ($matches) {
+				$expression = '$' . ltrim(trim($matches[1]), '$');
+				if ($this->isSimpleVariableExpression($expression)) {
+					$phpExpression = $this->transformDotNotationInExpression($expression);
+					return '<?php echo isset(' . $phpExpression . ') ? ' . $phpExpression . ' : \'\'; ?>';
+				}
+				return '<?php echo ' . $this->compilePhpExpression($expression) . '; ?>';
+			},
+			$content
+		);
+
 		$content = preg_replace_callback(
 			'/\{\$([^{}]+)\}/',
 			function ($matches) {
@@ -332,16 +351,22 @@ class view{
 	}
 
 	/**
-	 * 编译输出标签 {$...}
+	 * 编译输出标签 {$...}，默认经 e() 转义防止 XSS
 	 */
 	protected function compileOutputTag($expression) {
 		$expression = '$' . ltrim(trim($expression), '$');
 
 		if ($this->isSimpleVariableExpression($expression)) {
 			$phpExpression = $this->transformDotNotationInExpression($expression);
+			if ($this->tpl_auto_escape) {
+				return '<?php echo isset(' . $phpExpression . ') ? e(' . $phpExpression . ') : \'\'; ?>';
+			}
 			return '<?php echo isset(' . $phpExpression . ') ? ' . $phpExpression . ' : \'\'; ?>';
 		}
 
+		if ($this->tpl_auto_escape) {
+			return '<?php echo e(' . $this->compilePhpExpression($expression) . '); ?>';
+		}
 		return '<?php echo ' . $this->compilePhpExpression($expression) . '; ?>';
 	}
 
