@@ -227,7 +227,7 @@ class view{
 
 		// 确保缓存目录存在
 		if (!is_dir($tplCacheDir)) {
-			mkdir($tplCacheDir, 0777, true);
+			mkdir($tplCacheDir, 0755, true);
 		}
 		
 		// 添加编译时间戳注释

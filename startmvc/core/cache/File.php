@@ -32,7 +32,7 @@ class File {
         $this->cacheTime = $params['cacheTime'];
         
         if (!file_exists($this->cacheDir)) {
-            mkdir($this->cacheDir, 0777, true);
+            mkdir($this->cacheDir, 0755, true);
         }
     }
 
@@ -74,8 +74,14 @@ class File {
             return null;
         }
         
-        $cacheData = unserialize(file_get_contents($cacheFile));
-        
+        $cacheData = unserialize(file_get_contents($cacheFile), ['allowed_classes' => false]);
+
+        // 缓存文件被篡改或格式非法时视为未命中
+        if (!is_array($cacheData) || !isset($cacheData['expire'], $cacheData['data'])) {
+            $this->delete($key);
+            return null;
+        }
+
         // 检查是否过期
         if (time() > $cacheData['expire']) {
             $this->delete($key);
@@ -97,7 +103,10 @@ class File {
             return false;
         }
         
-        $cacheData = unserialize(file_get_contents($cacheFile));
+        $cacheData = unserialize(file_get_contents($cacheFile), ['allowed_classes' => false]);
+        if (!is_array($cacheData) || !isset($cacheData['expire'])) {
+            return false;
+        }
         return time() <= $cacheData['expire'];
     }
 

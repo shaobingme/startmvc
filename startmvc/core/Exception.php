@@ -55,7 +55,7 @@ class Exception
 		
 		// 确保日志目录存在
 		if (!is_dir($logPath)) {
-			@mkdir($logPath, 0777, true);
+			@mkdir($logPath, 0755, true);
 		}
 		
 		// 如果目录创建失败，尝试使用系统临时目录
