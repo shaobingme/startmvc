@@ -143,8 +143,17 @@ abstract class Model
 	 */
 	protected function newQuery()
 	{
-		$query = Db::table($this->table);
+		return $this->applySoftDeleteScope(Db::table($this->table));
+	}
 
+	/**
+	 * 在查询构建器上附加软删除范围条件
+	 *
+	 * @param mixed $query 查询构建器
+	 * @return mixed
+	 */
+	protected function applySoftDeleteScope($query)
+	{
 		if ($this->softDelete) {
 			if ($this->trashedMode === 2) {
 				$query->whereNotNull($this->deleteTime);
@@ -522,19 +531,33 @@ abstract class Model
 	/**
 	 * 魔术方法：调用不存在的方法时自动代理到查询构建器（软删除范围生效）
 	 *
+	 * 注意：Db::table() 返回同配置共享的构建器实例，事务/原生执行/表维护类
+	 * 方法不构成SELECT查询、执行后不会触发重置，直连透传以避免在共享构建器上
+	 * 累积WHERE残留；其余查询方法附加软删除范围后透传。
+	 *
 	 * @param string $method 方法名
 	 * @param array $args 参数
 	 * @return mixed 返回结果
 	 */
 	public function __call($method, $args)
 	{
-		$query = $this->newQuery();
+		$query = Db::table($this->table);
 
-		if (method_exists($query, $method)) {
-			return call_user_func_array([$query, $method], $args);
+		if (!method_exists($query, $method)) {
+			throw new \Exception("方法 {$method} 不存在");
 		}
 
-		throw new \Exception("方法 {$method} 不存在");
+		// 事务/原生执行/表维护/构建器配置类方法：不构成SELECT查询，直连透传
+		$directMethods = [
+			'transaction', 'commit', 'rollback', 'exec', 'fetch', 'fetchall', 'query',
+			'getpdo', 'is_table', 'optimize', 'analyze', 'check', 'repair', 'checksum',
+			'truncate', 'drop', 'cache', 'getsql', 'allowfulltable', 'escape',
+		];
+		if (!in_array(strtolower($method), $directMethods, true)) {
+			$this->applySoftDeleteScope($query);
+		}
+
+		return call_user_func_array([$query, $method], $args);
 	}
 
 	/**

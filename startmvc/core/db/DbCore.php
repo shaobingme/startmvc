@@ -2110,6 +2110,11 @@ class DbCore implements DbInterface
         } catch (PDOException $e) {
             $this->error = $e->getMessage();
             $this->error();
+        } finally {
+            // 模式一（原生SQL）执行完毕后清理构建状态与绑定参数，
+            // 防止残留 bindings 污染同连接的后续构建器查询（占位符与绑定数错位）
+            $this->reset();
+            $this->query = null;
         }
     }
 
@@ -2138,6 +2143,11 @@ class DbCore implements DbInterface
         } catch (PDOException $e) {
             $this->error = $e->getMessage();
             $this->error();
+        } finally {
+            // 模式一（原生SQL）执行完毕后清理构建状态与绑定参数，
+            // 防止残留 bindings 污染同连接的后续构建器查询（占位符与绑定数错位）
+            $this->reset();
+            $this->query = null;
         }
 
         $type = $this->getFetchType($type);
@@ -2194,6 +2204,8 @@ class DbCore implements DbInterface
         // 模式一：原始SQL + 绑定参数（仅保存语句与参数，配合 exec()/fetch() 执行）
         // 例: query('SELECT * FROM users WHERE id=?', [1])->fetch()
         if (is_array($all) || func_num_args() === 1) {
+            // 先清理上一次调用可能残留的构建状态与绑定参数
+            $this->reset();
             $this->query = $query;
             if (is_array($all)) {
                 $this->bindings = array_values($all);
