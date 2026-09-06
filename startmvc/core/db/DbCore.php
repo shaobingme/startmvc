@@ -448,21 +448,27 @@ class DbCore implements DbInterface
             $clone->select = $function . '(' . $field . ') as aggregate_value';
             $query = $clone->buildSelectQuery();
             $this->_returnSql = false;
+            $this->reset();
             return $clone->interpolateQuery($query);
         }
-        
+
         // 克隆当前查询构建器，避免污染原对象
         $clone = clone $this;
-        
+
         // 聚合查询不需要 select、limit、offset、orderBy
         $clone->select = $function . '(' . $field . ') as aggregate_value';
         $clone->limit = null;
         $clone->offset = null;
         $clone->orderBy = null;
-        
+
         // 构建并执行查询
         $query = $clone->buildSelectQuery();
         $result = $clone->query($query, false);
+
+        // 聚合在克隆体上执行，原构建器需同步重置并清空缓存标记，
+        // 防止WHERE条件与绑定参数泄漏到同连接的下一次查询（如paginate的计数与数据查询）
+        $this->reset();
+        $this->cache = null;
         
         // 返回聚合结果
         if ($result && is_array($result) && isset($result['aggregate_value'])) {
