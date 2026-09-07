@@ -8,7 +8,7 @@
  * @link      http://startmvc.com
  */
 return [
-    'drive' => 'file', //默认驱动支持file,redis缓存
+    'drive' => 'file', //默认驱动支持file,redis,memcached缓存
     'file'=> [
 		'cacheDir'=>'cache/',
 		'cacheTime'=>3600
@@ -18,6 +18,11 @@ return [
         'port' => 6379,
         'password' => '',
         'database' => 0,
+        'cacheTime'=>3600
+    ],
+    'memcached' => [
+        'host' => '127.0.0.1',
+        'port' => 11211,
         'cacheTime'=>3600
     ],
 ];

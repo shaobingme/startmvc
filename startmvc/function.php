@@ -185,37 +185,32 @@ function config($key = null, $default = null)
 
 /**
  * 缓存助手函数
- * 
+ *
  * @param string $name 缓存名称（注意命名唯一性，防止重复）
- * @param mixed $value 缓存值，为null时表示获取缓存
- * @param int $expire 缓存时间（秒），默认3600秒
+ * @param mixed $value 缓存值，为null时表示获取缓存，为false时表示删除缓存
+ * @param int|null $ttl 缓存时间（秒），null 时使用驱动配置的默认 cacheTime
  * @param string $driver 缓存驱动，默认使用配置中的驱动
- * @return mixed 获取缓存时返回缓存值，设置缓存时返回true/false
+ * @return mixed 获取缓存时返回缓存值（未命中为null），设置缓存时返回bool，删除缓存时返回bool
  */
-function cache($name, $value = null, $expire = 3600, $driver = null)
+function cache($name, $value = null, $ttl = null, $driver = null)
 {
-    static $instance = [];
-
     // 注意：不能写成 config('cache.drive', 'file')——config() 收到两个参数会被当作写配置，
     // 返回 true 导致驱动名变成 '1'。这里先取值、为空时再回退默认驱动。
-    $driverName = $driver ?: (config('cache.drive') ?: 'file');
-    if (!isset($instance[$driverName])) {
-        $instance[$driverName] = Cache::store($driverName);
-    }
-    
+    // store() 内部按驱动名复用实例，避免每次调用重连 Redis/Memcached
+    $instance = Cache::store($driver ?: (config('cache.drive') ?: 'file'));
+
     // 获取缓存
     if ($value === null) {
-        return $instance[$driverName]->get($name);
+        return $instance->get($name);
     }
 
     // 删除缓存
     if ($value === false) {
-        return $instance[$driverName]->delete($name);
+        return $instance->delete($name);
     }
 
-    // 设置缓存：显式传入的 $expire（区别于默认值 3600）作为本次写入的有效期，
-    // 未显式指定时传 null，由驱动使用配置中的默认 cacheTime
-    return $instance[$driverName]->set($name, $value, $expire !== 3600 ? $expire : null);
+    // 设置缓存：ttl 为 null 时由驱动使用配置中的默认 cacheTime
+    return $instance->set($name, $value, $ttl);
 }
 
 /**

@@ -13,11 +13,17 @@ use startmvc\core\Config;
 
 class Cache {
 	/**
+	 * 已创建的驱动实例池（按驱动名复用，避免 Redis/Memcached 重复建连）
+	 * @var array
+	 */
+	private static $instances = [];
+
+	/**
 	 * 缓存驱动实例
 	 * @var object
 	 */
 	private $drive;
-	
+
 	/**
 	 * 构造函数，初始化缓存驱动
 	 * @param string $driveName 驱动名称，默认从配置读取
@@ -27,27 +33,49 @@ class Cache {
 	public function __construct(string $driveName = null, array $params = []) {
 		$config = Config::load('cache');
 		$driveName = $driveName ?? $config['drive'];
-		$params = $params ?: $config[$driveName];
-		
+		$params = $params ?: ($config[$driveName] ?? []);
+
 		$className = 'startmvc\\core\\cache\\' . ucfirst($driveName);
-		
+
 		if (!class_exists($className)) {
 			throw new \Exception("缓存驱动 {$driveName} 不存在");
 		}
-		
+
 		$this->drive = new $className($params);
 	}
-	
+
 	/**
 	 * 设置缓存
 	 * @param string $key 缓存键名
 	 * @param mixed $val 缓存数据
 	 * @param int|null $ttl 有效期（秒），null 时使用驱动配置的默认 cacheTime
-	 * @return $this
+	 * @return bool 是否写入成功
 	 */
 	public function set(string $key, $val, $ttl = null) {
-		$this->drive->set($key, $val, $ttl);
-		return $this;
+		return (bool)$this->drive->set($key, $val, $ttl);
+	}
+
+	/**
+	 * 读取缓存，未命中时执行回调并写入缓存（get-or-set）
+	 *
+	 * 回调返回 null 视为不可缓存（null 在本框架中表示"未命中"），下次仍会执行回调。
+	 * 高并发下同 key 回调可能同时执行（无锁），对必须单次执行的场景请自行加锁。
+	 *
+	 * @param string $key 缓存键名
+	 * @param callable $callback 未命中时的取值回调
+	 * @param int|null $ttl 有效期（秒），null 时使用驱动配置的默认 cacheTime
+	 * @return mixed 缓存值或回调返回值
+	 */
+	public function remember(string $key, callable $callback, $ttl = null) {
+		$value = $this->drive->get($key);
+		if ($value !== null) {
+			return $value;
+		}
+		$value = $callback();
+		if ($value !== null) {
+			$this->drive->set($key, $value, $ttl);
+		}
+		return $value;
 	}
 	
 	/**
@@ -71,11 +99,10 @@ class Cache {
 	/**
 	 * 删除缓存
 	 * @param string $key 缓存键名
-	 * @return $this
+	 * @return bool 是否删除成功（键不存在时返回false）
 	 */
 	public function delete(string $key) {
-		$this->drive->delete($key);
-		return $this;
+		return (bool)$this->drive->delete($key);
 	}
 	
 	/**
@@ -88,13 +115,22 @@ class Cache {
 	}
 	
 	/**
-	 * 创建缓存实例的静态方法
+	 * 创建（或复用）缓存实例的静态方法
 	 * @param string $driver 驱动名称
-	 * @param array $params 驱动参数
+	 * @param array $params 驱动参数，非空时不进实例池（避免不同配置串扰）
 	 * @return Cache
 	 */
 	public static function store(string $driver = null, array $params = [])
 	{
-		return new self($driver, $params);
+		// 带自定义参数时不走实例池，避免不同配置串扰
+		if ($params) {
+			return new self($driver, $params);
+		}
+		// 未指定驱动时以配置的默认驱动名做池键，保证 store() 与 store('file') 复用同一实例
+		$driver = $driver ?? (Config::load('cache')['drive'] ?? 'file');
+		if (!isset(self::$instances[$driver])) {
+			self::$instances[$driver] = new self($driver);
+		}
+		return self::$instances[$driver];
 	}
 }

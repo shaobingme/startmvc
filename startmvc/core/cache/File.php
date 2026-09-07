@@ -28,9 +28,10 @@ class File {
      * @param array $params 配置参数
      */
     public function __construct($params = []) {
-        $this->cacheDir = ROOT_PATH . '/runtime/' . $params['cacheDir'];
-        $this->cacheTime = $params['cacheTime'];
-        
+        // 兼容配置带或不带尾斜杠两种写法，统一成带斜杠
+        $this->cacheDir = ROOT_PATH . '/runtime/' . rtrim($params['cacheDir'] ?? 'cache/', '/\\') . '/';
+        $this->cacheTime = $params['cacheTime'] ?? 3600;
+
         if (!file_exists($this->cacheDir)) {
             mkdir($this->cacheDir, 0755, true);
         }
@@ -50,7 +51,7 @@ class File {
      * @param string $key 缓存键名
      * @param mixed $data 缓存数据
      * @param int|null $ttl 有效期（秒），null 时使用构造时的默认 cacheTime
-     * @return void
+     * @return bool 是否写入成功
      */
     public function set($key, $data, $ttl = null) {
         $expire = $ttl ?? $this->cacheTime;
@@ -59,7 +60,8 @@ class File {
             'data' => $data,
             'expire' => time() + $expire
         ];
-        file_put_contents($cacheFile, serialize($cacheData));
+        // LOCK_EX 防止并发写入产生残缺文件
+        return file_put_contents($cacheFile, serialize($cacheData), LOCK_EX) !== false;
     }
 
     /**
@@ -74,7 +76,8 @@ class File {
             return null;
         }
         
-        $cacheData = unserialize(file_get_contents($cacheFile), ['allowed_classes' => false]);
+        // @ 抑制损坏数据的反序列化 Notice，统一走下方格式校验
+        $cacheData = @unserialize(file_get_contents($cacheFile), ['allowed_classes' => false]);
 
         // 缓存文件被篡改或格式非法时视为未命中
         if (!is_array($cacheData) || !isset($cacheData['expire'], $cacheData['data'])) {
@@ -103,7 +106,8 @@ class File {
             return false;
         }
         
-        $cacheData = unserialize(file_get_contents($cacheFile), ['allowed_classes' => false]);
+        // @ 抑制损坏数据的反序列化 Notice，统一走下方格式校验
+        $cacheData = @unserialize(file_get_contents($cacheFile), ['allowed_classes' => false]);
         if (!is_array($cacheData) || !isset($cacheData['expire'])) {
             return false;
         }
@@ -113,13 +117,14 @@ class File {
     /**
      * 删除缓存
      * @param string $key 缓存键名
-     * @return void
+     * @return bool 是否删除成功（文件不存在时返回false）
      */
     public function delete($key) {
         $cacheFile = $this->getPath($key);
         if (file_exists($cacheFile)) {
-            unlink($cacheFile);
+            return unlink($cacheFile);
         }
+        return false;
     }
 
     /**
@@ -127,7 +132,8 @@ class File {
      * @return void
      */
     public function clear() {
-        $files = glob($this->cacheDir . '*.cache');
+        // glob 出错时返回 false，需防御避免 foreach 警告
+        $files = glob($this->cacheDir . '*.cache') ?: [];
         foreach ($files as $file) {
             unlink($file);
         }

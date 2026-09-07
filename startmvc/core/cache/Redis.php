@@ -91,14 +91,22 @@ class Redis {
             return null;
         }
         
-        $cacheData = unserialize($cacheData);
-        
+        // @ 抑制损坏数据的反序列化 Notice，统一走下方格式校验
+        $cacheData = @unserialize($cacheData, ['allowed_classes' => false]);
+
+        // 缓存值被篡改或格式非法时视为未命中（对齐 File 驱动的校验，
+        // 避免对 false 取下标 'expire' 产生警告）
+        if (!is_array($cacheData) || !isset($cacheData['expire'], $cacheData['data'])) {
+            $this->redis->del($cacheKey);
+            return null;
+        }
+
         // 检查是否过期（双重检查，Redis自身会过期，这里是额外保障）
         if (time() > $cacheData['expire']) {
             $this->redis->del($cacheKey);
             return null;
         }
-        
+
         return $cacheData['data'];
     }
 
