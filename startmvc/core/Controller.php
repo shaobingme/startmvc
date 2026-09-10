@@ -14,16 +14,24 @@ use startmvc\core\Loader;
 use startmvc\core\View;
 
 abstract class Controller
-{
-	public $conf;
-	public $assign;
-	protected $view;
-	
-	public function __construct()
 	{
-		//$this->conf = config();
-		$this->view = new View();
-	}
+		public $conf;
+		public $assign;
+		protected $view;
+
+		/**
+		 * 当前请求实例（从容器获取，与中间件管道共享同一实例，
+		 * 中间件通过 $request->foo = ... 附加的状态可直接读取）
+		 * @var Request
+		 */
+		protected $request;
+		
+		public function __construct()
+		{
+			//$this->conf = config();
+			$this->request = Container::getInstance()->make(Request::class);
+			$this->view = new View();
+		}
 	/**
 	 * 模型定义
 	 */

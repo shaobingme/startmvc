@@ -7,41 +7,384 @@
  * @license   StartMVC 遵循Apache2开源协议发布，需保留开发者信息。
  * @link      http://startmvc.com
  */
- 
+
 namespace startmvc\core;
 
+/**
+ * 请求对象
+ *
+ * 双态调用设计（实例 API 声明为 private，类外经魔术方法分发）：
+ *   - 实例调用（推荐）：$request->method() —— 读取构造时捕获的请求快照，
+ *     支持测试注入模拟数据、_method 伪装、中间件属性袋；
+ *     App::run 创建的唯一实例贯穿中间件管道，并注入控制器/闭包方法签名
+ *   - 静态调用（兼容）：Request::method() —— 经 __callStatic 基于当前
+ *     超全局变量构造临时实例，行为与历史版本一致，保留给存量代码
+ *
+ * @method string uri() 原始 REQUEST_URI（含查询串）
+ * @method string path() 解析后的路由路径（已剥离查询串/入口文件/URL后缀）
+ * @method string method() 请求方法（POST + _method 伪装为 PUT/DELETE/PATCH）
+ * @method bool isGet() 是否GET请求
+ * @method bool isPost() 是否POST请求
+ * @method bool isAjax() 是否AJAX请求
+ * @method bool isHttps() 是否HTTPS请求
+ * @method string ip() 客户端IP（可信代理规则见 resolveIp）
+ * @method array all() 所有输入（GET + POST）
+ * @method mixed input(string $key = null, mixed $default = null) 获取输入值
+ * @method mixed get(string $key, array $options = []) 获取GET参数
+ * @method mixed post(string $key = '', array|mixed $options = []) 获取POST参数
+ * @method string postInput() 原始POST输入
+ * @method mixed getJson(bool $assoc = true) JSON格式POST数据
+ * @method mixed header(string $key = null, mixed $default = null) 获取请求头
+ * @method array headers() 所有请求头
+ */
 class Request
 {
     /**
-     * 获取所有输入（静态方法）
+     * 请求快照（构造时捕获，测试时可注入模拟数据，脱离真实超全局）
+     * @var array
+     */
+    protected $server;
+    protected $get;
+    protected $post;
+
+    /**
+     * 中间件属性袋：中间件可通过 $request->foo = 'bar' 附加状态，
+     * 随唯一请求实例贯穿管道传递到控制器（同时避免 PHP8.2 动态属性弃用告警）
+     * @var array
+     */
+    protected $attributes = [];
+
+    /**
+     * path()/method() 解析缓存
+     * @var string|null
+     */
+    protected $pathCache;
+    protected $methodCache;
+
+    /**
+     * 构造请求实例
+     * @param array|null $server 缺省捕获 $_SERVER
+     * @param array|null $get    缺省捕获 $_GET
+     * @param array|null $post   缺省捕获 $_POST
+     */
+    public function __construct(array $server = null, array $get = null, array $post = null)
+    {
+        $this->server = $server ?? $_SERVER;
+        $this->get = $get ?? $_GET;
+        $this->post = $post ?? $_POST;
+    }
+
+    /* ==================== 魔术分发 ==================== */
+
+    /**
+     * 静态调用兼容层：Request::isAjax() 等旧式静态调用
+     *
+     * 每次调用基于当前超全局变量构造临时实例，保持"实时读取"的旧有行为
+     * （框架内 Csrf/Cookie/Controller 及存量用户代码依赖此入口）
+     *
+     * @param string $name 方法名
+     * @param array $arguments 参数
+     * @return mixed
+     * @throws \BadMethodCallException 方法不存在时
+     */
+    public static function __callStatic($name, $arguments)
+    {
+        $request = new static();
+        if (!method_exists($request, $name)) {
+            throw new \BadMethodCallException('调用不存在的方法: Request::' . $name . '()');
+        }
+        return $request->{$name}(...$arguments);
+    }
+
+    /**
+     * 实例调用分发：$request->isAjax() 等
+     * （实例 API 声明为 private，类外调用经此分发到快照实现）
+     *
+     * @param string $name 方法名
+     * @param array $arguments 参数
+     * @return mixed
+     * @throws \BadMethodCallException 方法不存在时
+     */
+    public function __call($name, $arguments)
+    {
+        if (!method_exists($this, $name)) {
+            throw new \BadMethodCallException('调用不存在的方法: Request::' . $name . '()');
+        }
+        return $this->{$name}(...$arguments);
+    }
+
+    /* ==================== 中间件属性袋 ==================== */
+
+    public function __set($name, $value)
+    {
+        $this->attributes[$name] = $value;
+    }
+
+    public function __get($name)
+    {
+        return $this->attributes[$name] ?? null;
+    }
+
+    public function __isset($name)
+    {
+        return isset($this->attributes[$name]);
+    }
+
+    /* ==================================================================
+     * 实例 API（private：保证静态/实例两种调用方式都能经魔术方法分发，
+     * 详见类注释。类内部相互调用不受影响）
+     * ================================================================== */
+
+    /**
+     * 原始 REQUEST_URI（含查询串）
+     * @return string
+     */
+    private function uri()
+    {
+        return $this->server['REQUEST_URI'] ?? '/';
+    }
+
+    /**
+     * 解析后的路由路径（供路由匹配使用）
+     *
+     * 清洗规则（原 App::handleRequest 中的逻辑迁入）：
+     *   1. 去掉查询字符串
+     *   2. 去掉首尾斜杠
+     *   3. 过滤入口文件名（如 index.php/user/1 → user/1）
+     *   4. 剥离 URL 后缀（如 .html，规则与 Router::parse 一致）
+     *
+     * @return string
+     */
+    private function path()
+    {
+        if ($this->pathCache !== null) {
+            return $this->pathCache;
+        }
+
+        $uri = $this->uri();
+
+        // 移除查询字符串
+        $questionPos = strpos($uri, '?');
+        if ($questionPos !== false) {
+            $uri = substr($uri, 0, $questionPos);
+        }
+
+        // 移除前后的斜杠
+        $uri = trim($uri, '/');
+
+        // 过滤入口文件名（如 index.php/user/1 → user/1）
+        // 注意：PHP 内置服务器等 SAPI 下 SCRIPT_NAME 等于请求路径本身，
+        // 仅当其以 .php 结尾时才视为入口文件名，避免把整个 URI 剥空
+        $scriptName = basename($this->server['SCRIPT_NAME'] ?? '');
+        if (substr($scriptName, -4) === '.php' && strpos($uri, $scriptName) === 0) {
+            $uri = substr($uri, strlen($scriptName));
+            $uri = trim($uri, '/');
+        }
+
+        // 剥离URL后缀（如 .html），规则与 Router::parse 一致，保证路由表匹配不受后缀影响
+        $urlSuffix = Config::get('common.url_suffix') ?: '';
+        if ($urlSuffix !== '' && strlen($uri) > strlen($urlSuffix)) {
+            $suffixPos = strrpos($uri, $urlSuffix);
+            if ($suffixPos !== false && $suffixPos === strlen($uri) - strlen($urlSuffix)) {
+                $uri = substr($uri, 0, $suffixPos);
+            }
+        }
+
+        return $this->pathCache = $uri;
+    }
+
+    /**
+     * 请求方法（含 _method 表单伪装）
+     *
+     * POST + _method=PUT/DELETE/PATCH 时返回伪装后的方法（与路由匹配口径一致）；
+     * 伪装仅接受 PUT/DELETE/PATCH，不允许伪装成 GET 等安全方法，防止绕过 CSRF 校验
+     *
+     * @return string
+     */
+    private function method()
+    {
+        if ($this->methodCache !== null) {
+            return $this->methodCache;
+        }
+
+        $method = strtoupper($this->server['REQUEST_METHOD'] ?? 'GET');
+        if ($method === 'POST' && isset($this->post['_method'])) {
+            $spoofed = strtoupper((string)$this->post['_method']);
+            if (in_array($spoofed, ['PUT', 'DELETE', 'PATCH'], true)) {
+                $method = $spoofed;
+            }
+        }
+
+        return $this->methodCache = $method;
+    }
+
+    /**
+     * 判断是否为GET请求
+     * @return bool
+     */
+    private function isGet()
+    {
+        return $this->method() === 'GET';
+    }
+
+    /**
+     * 判断是否为POST请求
+     * @return bool
+     */
+    private function isPost()
+    {
+        return $this->method() === 'POST';
+    }
+
+    /**
+     * 判断是否为AJAX请求
+     * @return bool
+     */
+    private function isAjax()
+    {
+        return $this->header('X-Requested-With') === 'XMLHttpRequest';
+    }
+
+    /**
+     * 判断是否为HTTPS请求
+     * @return bool
+     */
+    private function isHttps()
+    {
+        return self::resolveHttps($this->server);
+    }
+
+    /**
+     * 获取客户端IP地址（可信代理规则见 resolveIp 说明）
+     * @return string
+     */
+    private function ip()
+    {
+        return self::resolveIp($this->server);
+    }
+
+    /**
+     * 获取所有输入（GET + POST）
      * @return array
      */
-    public static function all()
+    private function all()
     {
-        return array_merge($_GET, $_POST);
+        return array_merge($this->get, $this->post);
     }
-    
+
     /**
-     * 获取输入值（静态方法）
+     * 获取输入值
      * @param string $key 键名
      * @param mixed $default 默认值
      * @return mixed
      */
-    public static function input($key = null, $default = null)
+    private function input($key = null, $default = null)
     {
-        $data = self::all();
+        $data = $this->all();
         return $key ? ($data[$key] ?? $default) : $data;
     }
-    
+
     /**
-     * 获取请求头（静态方法）
+     * 获取GET参数
+     * @param string $key 键名
+     * @param array $options 处理选项
+     * @return mixed
+     */
+    private function get($key, $options = [])
+    {
+        $val = isset($this->get[$key]) ? $this->get[$key] : null;
+        return Http::handling($val, $options);
+    }
+
+    /**
+     * 获取POST参数
+     * @param string $key 键名(为空则返回所有POST数据)
+     * @param array|mixed $options 处理选项；传入标量时视为默认值 default
+     * @return mixed
+     */
+    private function post($key = '', $options = [])
+    {
+        // 支持 post('age', 0) 简写：标量 options 视为默认值
+        if (!is_array($options)) {
+            $options = ['default' => $options];
+        }
+
+        // 不传 key 时返回所有 POST 数据；传了 key 但不存在时返回 null（交由 handling 走默认值逻辑）
+        if ($key === '' || $key === null) {
+            $val = $this->post ?: null;
+        } else {
+            $val = array_key_exists($key, $this->post) ? $this->post[$key] : null;
+        }
+
+        return Http::handling($val, $options);
+    }
+
+    /**
+     * 获取原始POST输入
+     * @return string
+     */
+    private function postInput()
+    {
+        return file_get_contents('php://input');
+    }
+
+    /**
+     * 获取JSON格式的POST数据
+     * @param bool $assoc 是否转换为关联数组
+     * @return mixed
+     */
+    private function getJson($assoc = true)
+    {
+        return json_decode($this->postInput(), $assoc);
+    }
+
+    /**
+     * 获取请求头（基于请求快照解析，测试中构造的模拟头同样生效）
      * @param string $key 键名
      * @param mixed $default 默认值
      * @return mixed
      */
-    public static function header($key = null, $default = null)
+    private function header($key = null, $default = null)
     {
-        $headers = function_exists('getallheaders') ? getallheaders() : self::headers();
+        return self::findHeader($this->headers(), $key, $default);
+    }
+
+    /**
+     * 获取所有请求头
+     * @return array
+     */
+    private function headers()
+    {
+        return self::buildHeadersFromServer($this->server);
+    }
+
+    /* ==================== 共享解析逻辑（静态/实例复用） ==================== */
+
+    /**
+     * 从 server 数组构建请求头映射
+     * @param array $server
+     * @return array
+     */
+    protected static function buildHeadersFromServer(array $server)
+    {
+        $headers = [];
+        foreach ($server as $key => $value) {
+            if ('HTTP_' == substr($key, 0, 5)) {
+                $headers[ucfirst(strtolower(str_replace('_', '-', substr($key, 5))))] = $value;
+            }
+        }
+        return $headers;
+    }
+
+    /**
+     * 在请求头数组中查找指定头（键名不区分大小写）
+     * @param array $headers
+     * @param string $key
+     * @param mixed $default
+     * @return mixed
+     */
+    protected static function findHeader(array $headers, $key, $default)
+    {
         if ($key) {
             $key = strtolower($key);
             foreach ($headers as $headerKey => $value) {
@@ -53,132 +396,31 @@ class Request
         }
         return $headers;
     }
-    
-    /**
-     * 判断是否为AJAX请求（静态方法）
-     * @return bool
-     */
-    public static function isAjax()
-    {
-        return self::header('X-Requested-With') === 'XMLHttpRequest';
-    }
-
-    /**
-     * 获取GET参数
-     * @param string $key 键名
-     * @param array $options 处理选项
-     * @return mixed
-     */
-    public static function get($key, $options = [])
-    {
-        $val = isset($_GET[$key]) ? $_GET[$key] : null;
-        return Http::handling($val, $options);
-    }
-
-    /**
-     * 获取POST参数
-     * @param string $key 键名(为空则返回所有POST数据)
-     * @param array|mixed $options 处理选项；传入标量时视为默认值 default
-     * @return mixed
-     */
-    public static function post($key = '', $options = [])
-    {
-        // 支持 Request::post('age', 0) 简写：标量 options 视为默认值
-        if (!is_array($options)) {
-            $options = ['default' => $options];
-        }
-
-        // 不传 key 时返回所有 POST 数据；传了 key 但不存在时返回 null（交由 handling 走默认值逻辑）
-        if ($key === '' || $key === null) {
-            $val = $_POST ?: null;
-        } else {
-            $val = array_key_exists($key, $_POST) ? $_POST[$key] : null;
-        }
-
-        return Http::handling($val, $options);
-    }
-
-    /**
-     * 获取原始POST输入
-     * @return string
-     */
-    public static function postInput()
-    {
-        return file_get_contents('php://input');
-    }
-
-    /**
-     * 获取JSON格式的POST数据
-     * @param bool $assoc 是否转换为关联数组
-     * @return mixed
-     */
-    public static function getJson($assoc = true)
-    {
-        return json_decode(self::postInput(), $assoc);
-    }
-
-    /**
-     * 获取所有请求头
-     * @return array
-     */
-    public static function headers()
-    {
-        $headers = []; 
-        foreach ($_SERVER as $key => $value) { 
-            if ('HTTP_' == substr($key, 0, 5)) { 
-                $headers[ucfirst(strtolower(str_replace('_', '-', substr($key, 5))))] = $value; 
-            } 
-        }
-        return $headers;
-    }
-
-    /**
-     * 获取请求方法
-     * @return string
-     */
-    public static function method()
-    {
-        return strtoupper($_SERVER['REQUEST_METHOD']);
-    }
-
-    /**
-     * 判断是否为GET请求
-     * @return bool
-     */
-    public static function isGet()
-    {
-        return self::method() === 'GET';
-    }
-
-    /**
-     * 判断是否为POST请求
-     * @return bool
-     */
-    public static function isPost()
-    {
-        return self::method() === 'POST';
-    }
 
     /**
      * 判断是否为HTTPS请求
+     * @param array $server
      * @return bool
      */
-    public static function isHttps()
+    protected static function resolveHttps(array $server)
     {
-        return isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] === 'on' || $_SERVER['HTTPS'] == 1)
-            || isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https';
+        return isset($server['HTTPS']) && ($server['HTTPS'] === 'on' || $server['HTTPS'] == 1)
+            || isset($server['HTTP_X_FORWARDED_PROTO']) && $server['HTTP_X_FORWARDED_PROTO'] === 'https';
     }
 
     /**
-     * 获取客户端IP地址
+     * 解析客户端真实IP
+     *
      * 仅当 REMOTE_ADDR 命中可信代理列表（config: trusted_proxies）时才解析 X-Forwarded-For，
      * 且从右向左取第一个非可信代理的地址（最右侧由最近的代理追加，客户端无法伪造），
      * 否则一律返回 REMOTE_ADDR，防止通过伪造请求头绕过登录日志、限流、审计。
+     *
+     * @param array $server
      * @return string
      */
-    public static function ip()
+    protected static function resolveIp(array $server)
     {
-        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $remoteAddr = $server['REMOTE_ADDR'] ?? '0.0.0.0';
 
         $trustedProxies = (array)Config::get('trusted_proxies', []);
         if (empty($trustedProxies) || !self::isTrustedProxy($remoteAddr, $trustedProxies)) {
@@ -186,8 +428,8 @@ class Request
         }
 
         // 请求来自可信代理：从 X-Forwarded-For 最右侧向左找第一个非可信代理的有效IP
-        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            $ips = array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']));
+        if (!empty($server['HTTP_X_FORWARDED_FOR'])) {
+            $ips = array_map('trim', explode(',', $server['HTTP_X_FORWARDED_FOR']));
             for ($i = count($ips) - 1; $i >= 0; $i--) {
                 $ip = $ips[$i];
                 if (!filter_var($ip, FILTER_VALIDATE_IP)) {

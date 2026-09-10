@@ -359,7 +359,8 @@ class Router
     public static function resolveAction($action, array $params = [])
     {
         if ($action instanceof \Closure) {
-            return call_user_func_array($action, $params);
+            // 路由闭包同样支持签名注入：类类型参数（如 Request）走容器，其余按位置传匹配参数
+            return Loader::invoke($action, $params);
         }
 
         $action = trim((string)$action, '/');

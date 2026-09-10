@@ -20,12 +20,12 @@ class LogMiddleware extends MiddlewareBase
     {
         // 记录请求开始时间
         $startTime = microtime(true);
-        
-        // 记录请求信息
+
+        // 记录请求信息（统一从请求实例读取，与中间件管道共享）
         $requestInfo = [
-            'method' => $_SERVER['REQUEST_METHOD'],
-            'uri' => $_SERVER['REQUEST_URI'],
-            'ip' => $_SERVER['REMOTE_ADDR'],
+            'method' => $request->method(),
+            'uri' => $request->uri(),
+            'ip' => $request->ip(),
             'time' => date('Y-m-d H:i:s'),
         ];
         

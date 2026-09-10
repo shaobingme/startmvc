@@ -29,36 +29,38 @@ class CsrfMiddleware extends MiddlewareBase
     /**
      * 处理传入的请求
      *
-     * @param object $request 请求对象
-     * @param \Closure $next 下一个要执行的中间件
+     * @param Request $request 请求对象（与全局管道共享的同一实例）
+     * @param \Closure $next 下一个中间件
      * @return mixed
      */
     public function handle($request, \Closure $next)
     {
         // 安全方法：确保 Token 存在（供页面中的表单使用），直接放行
-        if (in_array(Request::method(), $this->safeMethods, true)) {
+        // 注：method() 含 _method 伪装，但伪装仅接受 PUT/DELETE/PATCH（均为非安全方法），不会绕过校验
+        if (in_array($request->method(), $this->safeMethods, true)) {
             Csrf::token();
             return $next($request);
         }
 
         // 排除路径（如第三方支付回调、对外开放 API）跳过校验
-        if ($this->inExceptArray()) {
+        if ($this->inExceptArray($request)) {
             return $next($request);
         }
 
         // 校验失败：拒绝请求，不再向下传递
         if (!Csrf::check()) {
-            return $this->deny();
+            return $this->deny($request);
         }
 
         return $next($request);
     }
 
     /**
-     * 判断当前请求 URI 是否在排除列表中
+     * 判断当前请求路径是否在排除列表中
+     * @param Request $request
      * @return bool
      */
-    protected function inExceptArray()
+    protected function inExceptArray(Request $request)
     {
         $config = Config::get('csrf', []);
         $exclude = $config['exclude'] ?? [];
@@ -66,7 +68,8 @@ class CsrfMiddleware extends MiddlewareBase
             return false;
         }
 
-        $uri = trim((string)parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH), '/');
+        // 使用与路由一致的解析后路径（已剥离入口文件名和 URL 后缀）
+        $uri = trim($request->path(), '/');
 
         foreach ($exclude as $pattern) {
             $pattern = trim((string)$pattern, '/');
@@ -92,13 +95,14 @@ class CsrfMiddleware extends MiddlewareBase
     /**
      * 拒绝请求：返回 403
      * AJAX 请求返回 JSON，普通请求返回 HTML 提示页
+     * @param Request $request
      * @return string
      */
-    protected function deny()
+    protected function deny(Request $request)
     {
         http_response_code(403);
 
-        if (Request::isAjax() || $this->wantsJson()) {
+        if ($request->isAjax() || $this->wantsJson($request)) {
             header('Content-Type: application/json; charset=utf-8');
             return json_encode([
                 'code' => 403,
@@ -115,11 +119,12 @@ class CsrfMiddleware extends MiddlewareBase
 
     /**
      * 判断客户端是否期望 JSON 响应
+     * @param Request $request
      * @return bool
      */
-    protected function wantsJson()
+    protected function wantsJson(Request $request)
     {
-        $accept = (string)Request::header('Accept', '');
+        $accept = (string)$request->header('Accept', '');
         return strpos($accept, 'application/json') !== false;
     }
 }

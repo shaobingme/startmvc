@@ -33,27 +33,29 @@ class App
 		// 记录开始时间和内存
 		$beginTime = microtime(true);
 		$beginMem = memory_get_usage();
-		
+
+		Exception::init();
+		$this->loadFunction();
+
+		// 创建请求对象并在容器中绑定为单例：
+		// 中间件管道、路由闭包、控制器方法签名注入的都是这同一个实例
+		$request = new Request();
+		Container::getInstance()->singleton(Request::class, $request);
+
 		// 初始化 trace 数据
 		self::$trace = [
 			'beginTime' => $beginTime,
 			'beginMem' => $beginMem,
-			'uri' => $_SERVER['REQUEST_URI'],
-			'request_method' => $_SERVER['REQUEST_METHOD']
+			'uri' => $request->uri(),
+			'request_method' => $request->method()
 		];
-		
-		Exception::init();
-		$this->loadFunction();
-
-		// 创建请求对象
-		$request = new Request();
 
 		// 通过中间件管道处理请求
 		// 控制器响应方法（json/redirect/success/error 等）通过响应异常中断执行，
 		// 在此统一取出 Response 发送，保证不使用 exit() 截断框架收尾流程
 		try {
 			$response = Middleware::run($request, function($request) {
-				return $this->handleRequest();
+				return $this->handleRequest($request);
 			});
 		} catch (HttpResponseException $e) {
 			$response = $e->getResponse();
@@ -137,54 +139,25 @@ class App
 
 	/**
 	 * 处理请求
+	 * @param Request $request 当前请求实例（与全局/路由级中间件共享，中间件的修改可传递到控制器）
 	 */
-	private function handleRequest()
+	private function handleRequest(Request $request)
 	{
-		// 获取当前URI
-		$uri = $_SERVER['REQUEST_URI'];
-
-		// 移除查询字符串
-		$questionPos = strpos($uri, '?');
-		if ($questionPos !== false) {
-			$uri = substr($uri, 0, $questionPos);
-		}
-
-		// 移除前后的斜杠
-		$uri = trim($uri, '/');
-
-		// 过滤入口文件名（如 index.php/user/1 → user/1）
-		// 注意：PHP 内置服务器等 SAPI 下 SCRIPT_NAME 等于请求路径本身，
-		// 仅当其以 .php 结尾时才视为入口文件名，避免把整个 URI 剥空
-		$scriptName = basename($_SERVER['SCRIPT_NAME']);
-		if (substr($scriptName, -4) === '.php' && strpos($uri, $scriptName) === 0) {
-			$uri = substr($uri, strlen($scriptName));
-			$uri = trim($uri, '/');
-		}
-
-		// 剥离URL后缀（如 .html），规则与 Router::parse 一致，保证路由表匹配不受后缀影响
-		$urlSuffix = config('common.url_suffix') ?: '';
-		if ($urlSuffix !== '' && strlen($uri) > strlen($urlSuffix)) {
-			$suffixPos = strrpos($uri, $urlSuffix);
-			if ($suffixPos !== false && $suffixPos === strlen($uri) - strlen($urlSuffix)) {
-				$uri = substr($uri, 0, $suffixPos);
-			}
-		}
-
-		$method = strtoupper($_SERVER['REQUEST_METHOD']);
-		// 表单方法伪装：POST + _method 模拟 PUT/DELETE/PATCH
-		if ($method === 'POST' && isset($_POST['_method'])) {
-			$method = strtoupper((string)$_POST['_method']);
-		}
+		// 路由路径与请求方法统一由 Request 解析
+		// （含入口文件/URL后缀剥离、POST + _method 的 PUT/DELETE/PATCH 伪装）
+		$uri = $request->path();
+		$method = $request->method();
 
 		// 加载路由定义并优先匹配（流式 API 与旧配置数组共用一张路由表）
 		Router::loadRoutes();
 		$match = Router::match($uri, $method);
 		if ($match !== null) {
 			list($route, $params) = $match;
-			// 路由级中间件包裹控制器执行
+			// 路由级中间件包裹控制器执行：复用同一请求实例，
+			// 全局/路由中间件对请求的修改得以保留
 			return Middleware::pipeline(
 				$route['middleware'] ?? [],
-				new Request(),
+				$request,
 				function ($request) use ($route, $params) {
 					return Router::resolveAction($route['action'], $params);
 				}
