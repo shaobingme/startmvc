@@ -543,6 +543,53 @@ class Router
     }
 
     /**
+     * 导出当前路由表（只读）
+     *
+     * 供 CLI（route:list）等工具读取路由表使用，不触发路由加载——
+     * 调用方需自行确保 loadRoutes() 已执行。
+     *
+     * @return array [HTTP方法 => [['uri' => string, 'action' => mixed,
+     *               'middleware' => array, 'type' => string], ...]]
+     *               type 取值：static（精确匹配）/ dynamic（占位符）/ raw（原生正则）
+     */
+    public static function dump()
+    {
+        $tables = [
+            'static' => self::$staticRoutes,
+            'dynamic' => self::$dynamicRoutes,
+            'raw' => self::$rawRoutes,
+        ];
+
+        $result = [];
+        foreach ($tables as $type => $table) {
+            foreach ($table as $method => $routes) {
+                foreach ($routes as $key => $record) {
+                    // 三种表的键含义不同：静态表的键就是 URI；动态表另有 uri 键；
+                    // 原生正则表是自增键，只能拿编译后的正则代表
+                    if (isset($record['uri'])) {
+                        $uri = $record['uri'];
+                    } elseif (isset($record['regex'])) {
+                        $uri = $record['regex'];
+                    } else {
+                        $uri = (string)$key;
+                    }
+
+                    $result[$method][] = [
+                        'uri' => $uri,
+                        'action' => isset($record['action']) ? $record['action'] : null,
+                        'middleware' => isset($record['middleware']) ? $record['middleware'] : [],
+                        'type' => $type,
+                    ];
+                }
+            }
+        }
+
+        // 输出顺序稳定，便于 diff 与人工核对
+        ksort($result);
+        return $result;
+    }
+
+    /**
      * 将路由 URI 编译为完整匹配正则（占位符替换 + 斜杠转义 + 首尾锚定）
      *
      * 仅在路由注册期调用一次，结果随路由表缓存复用。
