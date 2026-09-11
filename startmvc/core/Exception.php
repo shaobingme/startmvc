@@ -167,21 +167,4 @@ class Exception
 			self::handleError($error['type'], $error['message'], $error['file'], $error['line']);
 		}
 	}
-
-	/**
-	 * 显示友好的错误页面给用户（在生产环境中使用）
-	 */
-	private static function errorPage($output)
-	{
-		// 将错误信息作为 GET 参数传递到错误页面
-		//$errorPageURL = '/error-page.php?error=' . urlencode($errorMessage);
-		//header("Location: $errorPageURL");
-		if(config('debug')){
-			include 'tpl/error.php';
-		}
-		exit;
-	}
 }
-
-// 创建 CustomErrorHandler 实例，自动注册错误处理和异常处理方法
-//$customErrorHandler = new CustomErrorHandler();

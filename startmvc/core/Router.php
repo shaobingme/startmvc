@@ -384,7 +384,19 @@ class Router
         $method = self::convertAction($parts[2] ?? $defaultAction);
         $args = array_slice($parts, 3);
 
-        // View 等组件依赖这些常量
+        // 把解析结果写入请求上下文（View / lang() / Controller::model() 的统一数据源），
+        // 并补绑为容器共享实例：CLI / 单元测试等未经 App::run 绑定的场景
+        // 也能读到同一份上下文，控制器构造时注入的也是这个实例
+        $container = Container::getInstance();
+        $request = $container->make(Request::class);
+        if ($request instanceof Request) {
+            $request->setRouteContext($module, $controller, $method);
+            $container->singleton(Request::class, $request);
+        }
+
+        // 兼容层：常量仍供存量代码与模板直接读取。
+        // 注意 define() 只在该常量首次定义时生效，无法反映同一进程内的多次路由
+        // 解析（CLI 下会残留首次的值），新代码请改用 Request::currentRoute() 读取
         if (!defined('MODULE')) define('MODULE', $module);
         if (!defined('CONTROLLER')) define('CONTROLLER', $controller);
         if (!defined('ACTION')) define('ACTION', $method);

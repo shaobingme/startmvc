@@ -13,10 +13,4 @@ return [
     'global' => [
         'app\\middleware\\CsrfMiddleware',  // CSRF 防护：所有 POST/PUT/DELETE/PATCH 请求强制校验
     ],
-
-    // 路由中间件（可应用到特定路由）
-    'route' => [
-        'auth' => 'app\\middleware\\AuthMiddleware',
-        'log'  => 'app\\middleware\\LogMiddleware',
-    ],
 ];

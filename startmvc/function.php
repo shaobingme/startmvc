@@ -82,37 +82,51 @@ function env($key, $default = null)
 /**
  * 语言包调用
  *
+ * 修复要点：
+ *   1. 按「模块|语言」缓存整个语言包，同一语言包只 include 一次
+ *      （原先既每次重读 config/common.php，又对未命中的键反复读盘）
+ *   2. 语言包文件缺失或键不存在时静默回退（默认值 → 键名），
+ *      不再抛异常——模板里任意一个 {lang(x)} 都不该让整站 500
+ *   3. 模块名取自当前路由上下文（Request::currentRoute），
+ *      CLI / 队列下自动回退到 default_module，不再依赖 MODULE 常量
+ *
+ * 注意缓存粒度：缓存的是语言包（模块+语言确定后即为常量），而非解析结果。
+ * 按 key 缓存解析结果会让不同 $default / 不同 $module 的调用相互串味。
+ *
  * @param string $key
  * @param string $default (可选) 默认值
+ * @param string $module (可选) 指定模块，缺省用当前路由上下文的模块
  * @return string
- * @throws \Exception
  */
-function lang($key, $default = '') {
-	static $langCache = [];
+function lang($key, $default = '', $module = null) {
+	// 语言包缓存：'模块|语言' => array|false（false 表示该语言包不存在，避免反复探测）
+	static $packs = [];
+
 	if (empty($key)) {
 		return $default;
 	}
-	// 如果语言包已经加载过，则直接返回对应的值
-	if (isset($langCache[$key])) {
-		return $langCache[$key];
-	}
 
-	$conf = include ROOT_PATH . '/config/common.php';
-	$locale = $conf['locale'] ?: 'zh_cn';
-	$langPath = APP_PATH . MODULE . '/language/' . $locale . '.php';
+	$locale = config('locale') ?: 'zh_cn';
+	$module = $module ?: \startmvc\core\Request::currentRoute('module', config('default_module') ?: 'home');
+	$packKey = $module . '|' . $locale;
 
-	if (is_file($langPath)) {
-		$lang = include $langPath;
-		if (!empty($lang[$key])) {
-			$langCache[$key] = $lang[$key];
-			return $lang[$key];
+	if (!isset($packs[$packKey])) {
+		$langPath = APP_PATH . $module . '/language/' . $locale . '.php';
+		if (is_file($langPath)) {
+			$pack = include $langPath;
+			$packs[$packKey] = is_array($pack) ? $pack : false;
+		} else {
+			$packs[$packKey] = false;
 		}
-	} else {
-		throw new \Exception('语言包文件不存在');
 	}
 
-	// 如果未找到对应的语言包键值，则返回默认值或者键名本身
-	return $default ?: $key;
+	$pack = $packs[$packKey];
+	if (is_array($pack) && isset($pack[$key])) {
+		return $pack[$key];
+	}
+
+	// 语言包缺失或未命中该键：回退默认值，其次回退键名本身（不抛异常）
+	return $default !== '' ? $default : $key;
 }
 
 

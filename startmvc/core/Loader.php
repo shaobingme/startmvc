@@ -124,24 +124,4 @@ class Loader
 
 		return $args;
 	}
-
-	protected static function filter($doc)
-	{
-		if ($doc) {
-			preg_match_all('/filter\[[\S\s]+\]/U', $doc, $matches); 
-			foreach ($matches[0] as $filter) {
-				$filterClass = preg_replace('/filter\[([\S\s]+)\(([\S\s]*)\)\]/', '${1}', $filter);
-				$filterClass = '\\Filter\\' . $filterClass;
-				$filterParamArr = preg_replace('/filter\[([\S\s]+)\(([\S\s]*)\)\]/', '${2}', $filter);
-				$filterParamArr = explode(',', $filterParamArr);
-				for ($i = 0; $i < count($filterParamArr); $i++) {
-					$filterParamArr[$i] = trim($filterParamArr[$i]);
-				}
-				$instance = self::getInstance($filterClass);
-				if (method_exists($instance, 'handle')) {
-					$instance->handle(...$filterParamArr);
-				}
-			}
-		}
-	}
 }

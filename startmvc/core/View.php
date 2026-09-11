@@ -25,6 +25,20 @@ class view{
 	protected $right_delimiter_quote;
 	protected $tpl_suffix = '.php'; // 默认模板后缀
 
+	/**
+	 * 当前请求实例（路由上下文来源，可在 CLI / 单元测试中显式注入）
+	 * @var Request
+	 */
+	protected $request;
+
+	/**
+	 * 当前路由上下文（模板查找与默认模板名使用）
+	 * @var string
+	 */
+	protected $route_module;
+	protected $route_controller;
+	protected $route_action;
+
 
 	private static $rules = [
 		// for loop
@@ -57,15 +71,26 @@ class view{
 		'/{html\s+\$(.*?)}/i' => '<?php echo isset($${1}) ? $${1} : \'\'; ?>',
 	];
 
-	function __construct(){
-		// 使用常量或默认值
-		$module = defined('MODULE') ? MODULE : 'home';
-		$controller = defined('CONTROLLER') ? CONTROLLER : 'Index';
-		$action = defined('ACTION') ? ACTION : 'index';
-		
+	/**
+	 * @param Request|null $request 当前请求实例；缺省取容器中 App::run 绑定的实例，
+	 *                              CLI / 队列下未绑定时自动回退到配置的默认模块与模板
+	 */
+	function __construct(Request $request = null){
+		// 路由上下文统一从请求对象读取，不再直接依赖 MODULE / CONTROLLER / ACTION 常量
+		// （常量只写一次，CLI 或同进程多次分发时并不可靠）
+		$request = $request ?: Container::getInstance()->make(Request::class);
+		if (!$request instanceof Request) {
+			$request = new Request();
+		}
+		$this->request = $request;
+
+		$this->route_module = $request->route('module', config('default_module') ?: 'home');
+		$this->route_controller = $request->route('controller', config('default_controller') ?: 'Index');
+		$this->route_action = $request->route('action', config('default_action') ?: 'index');
+
 		$theme=config('theme')?config('theme').DS:'';
-		$this->tpl_template_dir = APP_PATH .MODULE . DS. 'view'.DS.$theme;
-		$this->tpl_compile_dir = TEMP_PATH.MODULE.DS;
+		$this->tpl_template_dir = APP_PATH .$this->route_module . DS. 'view'.DS.$theme;
+		$this->tpl_compile_dir = TEMP_PATH.$this->route_module.DS;
 		$this->left_delimiter_quote = preg_quote($this->tpl_left_delimiter);
 		$this->right_delimiter_quote = preg_quote($this->tpl_right_delimiter);
 		
@@ -106,7 +131,7 @@ class view{
 	 */
 	protected function getTemplatePaths($name) {
 		if ($name == '') {
-			$name = strtolower(CONTROLLER . DS . ACTION);
+			$name = strtolower($this->route_controller . DS . $this->route_action);
 		}
 		
 		// 检查是否已经包含文件扩展名

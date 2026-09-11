@@ -36,6 +36,7 @@ namespace startmvc\core;
  * @method mixed getJson(bool $assoc = true) JSON格式POST数据
  * @method mixed header(string $key = null, mixed $default = null) 获取请求头
  * @method array headers() 所有请求头
+ * @method array route(string $key = null, mixed $default = null) 路由上下文（module/controller/action）
  */
 class Request
 {
@@ -53,6 +54,18 @@ class Request
      * @var array
      */
     protected $attributes = [];
+
+    /**
+     * 当前路由上下文：module / controller / action
+     *
+     * 由 Router::resolveAction() 在解析路由目标时写入，View / lang() /
+     * Controller::model() 等组件统一从这里读取。相比被它取代的
+     * MODULE / CONTROLLER / ACTION 常量：可重复写入（CLI 下多次分发不会
+     * 残留首次的值）、可读取、可注入，常量仅作为兼容层保留。
+     *
+     * @var array
+     */
+    protected $routeContext = [];
 
     /**
      * path()/method() 解析缓存
@@ -128,6 +141,78 @@ class Request
     public function __isset($name)
     {
         return isset($this->attributes[$name]);
+    }
+
+    /* ==================== 路由上下文 ==================== */
+
+    /**
+     * 设置当前路由上下文
+     *
+     * 由 Router::resolveAction() 在解析出路由目标后写入，是 View / lang() /
+     * Controller::model() 的统一数据源，取代原先 define() 全局常量传状态的写法。
+     *
+     * @param string $module 模块名
+     * @param string $controller 控制器名
+     * @param string $action 方法名（不含 Action 后缀）
+     * @return $this
+     */
+    public function setRouteContext($module, $controller, $action)
+    {
+        $this->routeContext = [
+            'module' => $module,
+            'controller' => $controller,
+            'action' => $action,
+        ];
+        return $this;
+    }
+
+    /**
+     * 读取路由上下文
+     *
+     * 数据源优先级：请求实例上的路由上下文 → 兼容层常量 → 调用方默认值。
+     * CLI / 队列 / 单元测试等"无路由"场景因此不再像常量那样直接失效，
+     * 而是安全回退到默认值。
+     *
+     * @param string|null $key 键名（module/controller/action），为 null 时返回全部
+     * @param mixed $default 键不存在时的默认值
+     * @return mixed
+     */
+    private function route($key = null, $default = null)
+    {
+        $context = $this->routeContext;
+        if (empty($context)) {
+            // 兼容层：常量仍可能被存量代码或模板直接读取，
+            // 注意 define() 只在首次定义时生效，无法反映同一进程内的多次路由解析
+            $context = [
+                'module' => defined('MODULE') ? MODULE : null,
+                'controller' => defined('CONTROLLER') ? CONTROLLER : null,
+                'action' => defined('ACTION') ? ACTION : null,
+            ];
+        }
+
+        if ($key === null) {
+            return $context;
+        }
+        return $context[$key] ?? $default;
+    }
+
+    /**
+     * 读取当前请求的路由上下文（静态入口）
+     *
+     * 供 lang() 等无法注入 Request 的全局函数使用：优先取容器中绑定的当前
+     * 请求实例，未绑定时回退到兼容层常量与调用方默认值。
+     *
+     * @param string|null $key 键名（module/controller/action），为 null 时返回全部
+     * @param mixed $default 键不存在时的默认值
+     * @return mixed
+     */
+    public static function currentRoute($key = null, $default = null)
+    {
+        $request = Container::getInstance()->make(static::class);
+        if (!$request instanceof self) {
+            return $default;
+        }
+        return $request->route($key, $default);
     }
 
     /* ==================================================================

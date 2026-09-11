@@ -15,8 +15,6 @@ use startmvc\core\View;
 
 abstract class Controller
 	{
-		public $conf;
-		public $assign;
 		protected $view;
 
 		/**
@@ -28,30 +26,28 @@ abstract class Controller
 		
 		public function __construct()
 		{
-			//$this->conf = config();
 			$this->request = Container::getInstance()->make(Request::class);
-			$this->view = new View();
+			// 视图复用同一请求实例，模板目录与默认模板名取自当前路由上下文
+			$this->view = new View($this->request);
 		}
 	/**
 	 * 模型定义
 	 */
-	protected function model($model, $module = MODULE)
+	protected function model($model, $module = null)
 	{
+		// 模块名默认取当前路由上下文（CLI / 队列下回退到配置的默认模块），
+		// 不再依赖 MODULE 常量，也不受子类是否调用 parent::__construct 影响
+		$module = $module ?: Request::currentRoute('module', config('default_module') ?: 'home');
 		$model = APP_NAMESPACE.'\\' . $module . '\\'. 'model\\' . $model . 'Model';
 		return Loader::getInstance($model);
 	}
 	/**
-	 * url的方法
+	 * url的方法：与全局 url() 助手保持同一实现
+	 * （原先未做 ltrim，传入 '/user/1' 会拼出 '//user/1'）
 	 */
 	protected function url($url)
 	{
-		$url = $url . config('url_suffix');
-		if (config('urlrewrite')) {
-			$url = '/' . $url;
-		} else {
-			$url = '/index.php/' . $url;
-		}
-		return str_replace('%2F', '/', urlencode($url));
+		return \url($url);
 	}
 
 	/**
@@ -104,7 +100,7 @@ abstract class Controller
 	}
 	protected function response($code='',$msg='',$url='',$data=[],$ajax=false)
 	{
-		if($ajax || Request::isAjax()){
+		if($ajax || $this->request->isAjax()){
 			$data=[
 				'code'=>$code,//1-成功 0-失败
 				'msg'=>$msg,
