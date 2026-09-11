@@ -25,16 +25,33 @@ namespace startmvc\core;
 class Router
 {
     /**
-     * 路由表：[method][uri] => ['action' => mixed, 'middleware' => array]
+     * 静态路由表（URI 中不含 : 占位符）：[method][uri] => ['action' => mixed, 'middleware' => array]
+     *
+     * 精确命中走哈希查找，零正则开销——这是绝大多数请求的实际路径。
      * @var array
      */
-    protected static $routes = [];
+    protected static $staticRoutes = [];
+
+    /**
+     * 动态路由表（URI 中含 : 占位符）：
+     * [method][uri] => ['regex' => string, 'action' => mixed, 'middleware' => array]
+     *
+     * regex 在注册期就编译好（含首尾锚定），匹配时只做 preg_match，不再重复编译。
+     * @var array
+     */
+    protected static $dynamicRoutes = [];
 
     /**
      * 原生正则路由：[method][] => ['regex' => string, 'action' => mixed, 'middleware' => array]
      * @var array
      */
     protected static $rawRoutes = [];
+
+    /**
+     * 路由编译缓存是否启用（null 表示尚未读取配置）
+     * @var bool|null
+     */
+    protected static $cacheEnabled = null;
 
     /**
      * 当前路由组前缀
@@ -219,10 +236,22 @@ class Router
         // 统一旧简便占位符写法
         $uri = strtr($uri, self::$legacyPatterns);
 
-        self::$routes[$method][$uri] = [
+        $record = [
             'action' => $action,
             'middleware' => array_merge(self::$middleware, $middleware),
         ];
+
+        // 静态 / 动态分表：
+        //   静态路由进哈希表，请求命中时 O(1)，完全绕开正则；
+        //   动态路由在此刻就编译好正则并随记录存下，匹配循环里只剩 preg_match。
+        // 两者都用 $uri 作键，重复注册同一 URI 时行为与旧版一致（后者覆盖前者、且保留首次插入位置）。
+        if (strpos($uri, ':') === false) {
+            self::$staticRoutes[$method][$uri] = $record;
+        } else {
+            $record['uri'] = $uri;
+            $record['regex'] = self::compileToRegex($uri);
+            self::$dynamicRoutes[$method][$uri] = $record;
+        }
     }
 
     /**
@@ -232,6 +261,11 @@ class Router
      *   1. 流式 API：在 return 之前直接调用 Router::get()/group()/resource()（推荐）
      *   2. 数组配置：return 一个二维数组（兼容旧版写法）
      * 两种写法可混用，定义结果进入同一张路由表。
+     *
+     * 编译结果会落盘到 runtime/cache/routes.php：
+     * 下次请求直接恢复已编译好的路由表，跳过配置文件执行与正则编译。
+     * 缓存以「route.php mtime + 框架版本号」为失效键，改路由或升级框架后自动重建；
+     * 路由中含闭包时不写缓存（闭包不可序列化），退回每请求即时编译。
      *
      * @return void
      */
@@ -243,9 +277,16 @@ class Router
         self::$routesLoaded = true;
 
         // 路由配置文件在全局命名空间执行（include 不继承宿主命名空间），
-        // 注册类别名让配置文件中可以直接写 Router::get(...)
+        // 注册类别名让配置文件中可以直接写 Router::get(...)。
+        // 必须在缓存判断之前执行：缓存命中时同样不 include 配置文件，
+        // 但应用代码/后续动态注册仍可能依赖这个全局别名。
         if (!class_exists('Router', false)) {
             class_alias(self::class, 'Router');
+        }
+
+        // 优先恢复编译缓存：命中则连 route.php 都不需要 include
+        if (self::loadCompiled()) {
+            return;
         }
 
         // 加载路由配置：文件中 return 的数组按旧版格式转译进路由表
@@ -253,6 +294,167 @@ class Router
         if (is_array($legacy)) {
             self::loadLegacyConfig($legacy);
         }
+
+        // 编译结果写盘，供后续请求直接复用
+        self::saveCompiled();
+    }
+
+    /**
+     * 路由编译缓存文件路径
+     * @return string
+     */
+    public static function cacheFile()
+    {
+        return CACHE_PATH . 'routes.php';
+    }
+
+    /**
+     * 删除路由编译缓存（部署脚本或调试时可主动调用）
+     * @return bool 文件不存在或删除成功均返回 true
+     */
+    public static function clearCache()
+    {
+        $file = self::cacheFile();
+        return !is_file($file) || @unlink($file);
+    }
+
+    /**
+     * 是否启用路由编译缓存
+     *
+     * 取 config('route_cache')，未配置时默认启用——缓存会在路由配置或框架版本
+     * 变化时自动失效，不依赖人工清理，因此默认开启是安全的。
+     *
+     * @return bool
+     */
+    protected static function cacheEnabled()
+    {
+        if (self::$cacheEnabled === null) {
+            $enabled = config('route_cache');
+            self::$cacheEnabled = ($enabled === null) ? true : (bool)$enabled;
+        }
+        return self::$cacheEnabled;
+    }
+
+    /**
+     * 路由配置文件的修改时间（缓存失效依据）
+     * @return int
+     */
+    protected static function routesMtime()
+    {
+        $file = CONFIG_PATH . 'route.php';
+        return is_file($file) ? (int)filemtime($file) : 0;
+    }
+
+    /**
+     * 从编译缓存恢复路由表
+     *
+     * 缓存损坏（被手工改坏、写入中断）时静默返回 false，由调用方回退到重新编译，
+     * 保证缓存问题永远不会演变成整站 500。
+     *
+     * @return bool 是否成功恢复
+     */
+    protected static function loadCompiled()
+    {
+        if (!self::cacheEnabled()) {
+            return false;
+        }
+
+        $file = self::cacheFile();
+        if (!is_file($file)) {
+            return false;
+        }
+
+        try {
+            $cache = include $file;
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        if (!is_array($cache)
+            || ($cache['version'] ?? null) !== SM_VERSION
+            || ($cache['mtime'] ?? null) !== self::routesMtime()
+            || !isset($cache['static'], $cache['dynamic'], $cache['raw'])
+            || !is_array($cache['static']) || !is_array($cache['dynamic']) || !is_array($cache['raw'])
+        ) {
+            return false;
+        }
+
+        self::$staticRoutes = $cache['static'];
+        self::$dynamicRoutes = $cache['dynamic'];
+        self::$rawRoutes = $cache['raw'];
+        return true;
+    }
+
+    /**
+     * 将编译好的路由表写入缓存
+     *
+     * 采用「临时文件 + rename」原子写：rename 在同一分区内是原子操作，
+     * 并发请求要么读到完整旧文件、要么读到完整新文件，不会读到半截内容。
+     *
+     * @return void
+     */
+    protected static function saveCompiled()
+    {
+        if (!self::cacheEnabled()) {
+            return;
+        }
+
+        $file = self::cacheFile();
+
+        // 闭包路由无法 var_export，整体放弃缓存，并清掉可能残留的旧缓存
+        if (!self::isCacheable()) {
+            if (is_file($file)) {
+                @unlink($file);
+            }
+            return;
+        }
+
+        $payload = [
+            'version' => SM_VERSION,
+            'mtime' => self::routesMtime(),
+            'static' => self::$staticRoutes,
+            'dynamic' => self::$dynamicRoutes,
+            'raw' => self::$rawRoutes,
+        ];
+
+        $content = "<?php\n"
+            . "// StartMVC 路由编译缓存（由 Router 自动生成，请勿手工编辑）。\n"
+            . "// 路由配置或框架版本变化时自动失效重建，也可调用 Router::clearCache() 删除。\n"
+            . "return " . var_export($payload, true) . ";\n";
+
+        $tmp = $file . '.' . getmypid() . '.tmp';
+        if (@file_put_contents($tmp, $content, LOCK_EX) === false) {
+            return;
+        }
+        if (!@rename($tmp, $file)) {
+            @unlink($tmp);
+            return;
+        }
+        // 纯数据文件，无需 opcache 反复编译
+        if (function_exists('opcache_invalidate')) {
+            @opcache_invalidate($file, true);
+        }
+    }
+
+    /**
+     * 路由表是否可缓存
+     *
+     * 闭包（路由回调）无法序列化，只要路由表中存在闭包就整体不写缓存。
+     *
+     * @return bool
+     */
+    protected static function isCacheable()
+    {
+        foreach ([self::$staticRoutes, self::$dynamicRoutes, self::$rawRoutes] as $group) {
+            foreach ($group as $routes) {
+                foreach ($routes as $record) {
+                    if (($record['action'] ?? null) instanceof \Closure) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -286,9 +488,15 @@ class Router
 
     /**
      * 根据 URI 和 HTTP 方法匹配路由
+     *
+     * 三段式匹配，开销从低到高：
+     *   1. 静态表哈希精确匹配（零正则）
+     *   2. 原生正则路由
+     *   3. 占位符动态路由（正则已在注册期编译好）
+     *
      * @param string $uri 请求 URI（不含查询串，可含前后斜杠）
      * @param string $method HTTP 方法
-     * @return array|null [路由数据, 匹配参数] 或 null
+     * @return array|null [路由数据, 匹配参数] 或 null；动态路由数据额外含 uri/regex 两个键
      */
     public static function match($uri, $method)
     {
@@ -304,10 +512,10 @@ class Router
         // 候选方法：精确方法优先，ANY 兜底（旧配置不限方法）
         $candidates = $method === 'GET' ? ['GET', 'ANY'] : [$method, 'ANY'];
 
-        // 1) 精确匹配（静态表，零正则开销）
+        // 1) 静态表精确匹配（哈希查找，零正则开销）
         foreach ($candidates as $m) {
-            if (isset(self::$routes[$m][$uri])) {
-                return [self::$routes[$m][$uri], []];
+            if (isset(self::$staticRoutes[$m][$uri])) {
+                return [self::$staticRoutes[$m][$uri], []];
             }
         }
 
@@ -321,10 +529,10 @@ class Router
             }
         }
 
-        // 3) 占位符模式匹配
+        // 3) 占位符模式匹配（正则由 addRoute 预编译，此处不再调用 compileToRegex）
         foreach ($candidates as $m) {
-            foreach (self::$routes[$m] ?? [] as $route => $data) {
-                if (preg_match('#^' . self::compileRoute($route) . '$#', $uri, $matches)) {
+            foreach (self::$dynamicRoutes[$m] ?? [] as $data) {
+                if (preg_match($data['regex'], $uri, $matches)) {
                     array_shift($matches);
                     return [$data, $matches];
                 }
@@ -335,17 +543,20 @@ class Router
     }
 
     /**
-     * 将路由 URI 编译为正则（占位符替换 + 斜杠转义）
-     * @param string $route
-     * @return string
+     * 将路由 URI 编译为完整匹配正则（占位符替换 + 斜杠转义 + 首尾锚定）
+     *
+     * 仅在路由注册期调用一次，结果随路由表缓存复用。
+     *
+     * @param string $uri 含 :占位符 的路由 URI
+     * @return string 形如 #^article\/(\d+)$#
      */
-    protected static function compileRoute($route)
+    protected static function compileToRegex($uri)
     {
-        if (strpos($route, ':') !== false) {
+        if (strpos($uri, ':') !== false) {
             // strtr 按最长键优先替换，:alphanum 不会被 :alpha 截断
-            $route = strtr($route, self::$patterns);
+            $uri = strtr($uri, self::$patterns);
         }
-        return str_replace('/', '\/', $route);
+        return '#^' . str_replace('/', '\/', $uri) . '$#';
     }
 
     /**

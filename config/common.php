@@ -10,6 +10,9 @@
 return [
     'debug' => true,	//Debug模式，开发过程中开启，生产环境中请关闭
     'trace' => true,	//是否开启调试追踪，生产环境中请关闭
+    'route_cache' => true,	//路由编译缓存：首次请求编译路由表并落盘 runtime/cache/routes.php，后续请求直接复用。
+                            //以 config/route.php 的修改时间 + 框架版本号为失效键，改路由或升级框架后自动重建，无需手工清理。
+                            //路由中含闭包（不可序列化）时自动跳过缓存。关闭请设为 false。
     'timezone' => 'Asia/Shanghai',	//系统时区
     'url_suffix' => '.html',	//URL后缀
     'default_module' => 'home',	//默认模块

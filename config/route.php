@@ -46,6 +46,14 @@ return [
   数组用 (:num)/(:any)/(:alpha)/(:alnum)，也支持 '/^...$/' 原生正则
 - 优先级：精确匹配 > 正则路由 > 内置模式
 - URL后缀（如 .html）在路由匹配前自动剥离，规则中无需写后缀
+
+性能：
+- 静态路由（不含占位符）走哈希表精确匹配，不产生正则开销；
+  含占位符的路由在本文件加载时一次性编译为正则，匹配阶段只做 preg_match
+- 编译结果缓存在 runtime/cache/routes.php：改本文件后缓存自动失效重建，
+  升级框架版本同样会失效。开关见 config/common.php 的 route_cache
+- 本文件中如出现闭包路由（不可序列化），路由缓存会自动跳过，不影响功能
+- 需要强制重建缓存时调用 Router::clearCache()，或直接删除 runtime/cache/routes.php
 */
 
 return [];
