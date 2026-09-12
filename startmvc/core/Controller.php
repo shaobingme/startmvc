@@ -65,13 +65,9 @@ abstract class Controller
 	 
 	protected function display($tplfile='',$data=[])
 	{
-		// 直接调用视图的display方法，输出内容
-		$this->view->display($tplfile,$data);
-		
-		// 如果开启了 trace，在页面末尾添加 trace 信息
-		if (config('trace')) {
-			\startmvc\core\App::outputTrace();
-		}
+		// 渲染结果交给统一响应出口发送：内容仍在控制器执行期间输出（保持既有顺序语义），
+		// trace 面板改由 Response::send() 单点附加，不再在这里判断一次
+		(new Response())->html($this->view->fetch($tplfile,$data))->send();
 	}
 	
 	/**
@@ -84,11 +80,13 @@ abstract class Controller
 	
 	/**
 	 * 调用内容
+	 *
+	 * 保留历史语义：设置 text/plain 后立即输出，但**不终止**后续代码执行。
+	 * 需要终止请用 exit()，或直接 return (new Response())->text(...) 交给框架发送。
 	 */
 	public function content($content)
 	{
-		header('Content-Type:text/plain; charset=utf-8');
-		echo $content;
+		(new Response())->text($content)->send();
 	}
 	protected function success($msg='',$url='',$data=[],$ajax=false)
 	{
@@ -110,11 +108,10 @@ abstract class Controller
 			$this->json($data);
 		}else{
 			// 跳转页渲染为字符串装入 Response，通过响应异常交给框架统一发送
-			$response = new Response();
 			ob_start();
 			include __DIR__.DS.'tpl/jump.php';
-			$response->setContent(ob_get_clean());
-			throw new HttpResponseException($response);
+			$jump = ob_get_clean();
+			throw new HttpResponseException((new Response())->html($jump));
 		}
 
 	}
@@ -125,10 +122,8 @@ abstract class Controller
 	 */
 	protected function json($data)
 	{
-		$response = new Response();
-		$response->setHeader('Content-Type', 'application/json; charset=utf-8')
-			->setContent(json_encode($data, JSON_UNESCAPED_UNICODE));
-		throw new HttpResponseException($response);
+		// JSON 构建统一走 Response::json，避免同一件事在框架里存两份实现
+		throw new HttpResponseException((new Response())->json($data));
 	}
 
 
@@ -137,17 +132,16 @@ abstract class Controller
 	 */
 	protected function redirect($url='')
 	{
-		$url=$url?:'/';
-		$response = new Response();
-		$response->setStatusCode(302)->setHeader('Location', $url);
-		throw new HttpResponseException($response);
+		throw new HttpResponseException((new Response())->redirect($url ?: '/'));
 	}
 	/**
 	 * 404方法
+	 *
+	 * 保留历史语义：只设置 404 状态码、**不终止**执行、不输出响应体。
+	 * 需要终止并渲染 404 页面请抛 \Exception('页面不存在', 404)，由 Exception 统一处理。
 	 */
 	protected function notFound()
 	{
-		header("HTTP/1.1 404 Not Found");  
-		header("Status: 404 Not Found");
+		(new Response())->setStatusCode(404)->withTrace(false)->send();
 	}
 }

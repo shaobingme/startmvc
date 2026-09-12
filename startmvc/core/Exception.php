@@ -91,54 +91,46 @@ class Exception
 
 		// 404：路由未命中或目标不存在，返回正确的 404 状态码（而非一律 500）
 		if ($exception->getCode() === 404) {
-			http_response_code(404);
-			if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
-				strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
-				header('Content-Type: application/json');
-				echo json_encode(['error' => 'Not Found', 'code' => 404]);
+			if (self::isAjaxRequest()) {
+				(new Response())->json(['error' => 'Not Found', 'code' => 404], 404)
+					->withTrace(false)->send();
 				exit;
 			}
-			header('Content-Type: text/html; charset=utf-8');
-			$notFoundTemplate = CORE_PATH . 'tpl/404.php';
+
+			// 模板渲染到缓冲区后交由 Response 发送：状态码 / 响应头 / 输出收敛到一个出口。
+			// withTrace(false) 保持历史行为（错误页不附加调试面板）
+			ob_start();
+			$notFoundTemplate = __DIR__ . '/tpl/404.php';
 			if (file_exists($notFoundTemplate)) {
 				include $notFoundTemplate;
 			} else {
 				echo '<h1>404 Not Found</h1><p>页面不存在</p>';
 			}
+			(new Response())->html(ob_get_clean(), 404)->withTrace(false)->send();
 			exit;
 		}
-
-		// 设置HTTP状态码
-		http_response_code(500);
 
 		// 获取调试模式设置
 		// 默认为 false：配置文件丢失时按生产环境处理，避免意外开启调试导致信息泄露
 		$debug = config('debug', false);
 
 		// AJAX请求处理
-		if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
-			strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
-			header('Content-Type: application/json');
+		if (self::isAjaxRequest()) {
 			// 详细信息（错误消息+堆栈）仅在调试模式返回；
 			// 生产环境返回通用提示，防止泄露 SQL、文件路径、数据库账号等敏感内容
-			if ($debug) {
-				echo json_encode([
-					'error' => $exception->getMessage(),
-					'trace' => $exception->getTraceAsString()
-				]);
-			} else {
-				echo json_encode([
-					'error' => '服务器内部错误，请稍后再试'
-				]);
-			}
+			$payload = $debug
+				? ['error' => $exception->getMessage(), 'trace' => $exception->getTraceAsString()]
+				: ['error' => '服务器内部错误，请稍后再试'];
+			(new Response())->json($payload, 500)->withTrace(false)->send();
 			exit;
 		}
 
 		// 传递异常对象到错误模板
 		$e = $exception; // 为错误模板提供异常对象
-		
-		// 包含错误模板
-		$errorTemplate = CORE_PATH . 'tpl/error.php';
+
+		// 包含错误模板（同样渲染到缓冲区后由 Response 统一发送）
+		ob_start();
+		$errorTemplate = __DIR__ . '/tpl/error.php';
 		if (file_exists($errorTemplate)) {
 			include $errorTemplate;
 		} else {
@@ -146,7 +138,21 @@ class Exception
 			echo '<p>' . htmlspecialchars($exception->getMessage()) . '</p>';
 			echo '<pre>' . htmlspecialchars($exception->getTraceAsString()) . '</pre>';
 		}
+		(new Response())->html(ob_get_clean(), 500)->withTrace(false)->send();
 		exit;
+	}
+
+	/**
+	 * 是否为 AJAX 请求（读取 X-Requested-With 请求头）
+	 *
+	 * Exception 是纯静态上下文，拿不到已绑定的 Request 实例，故在此统一判断，
+	 * 避免同一段判断在 404 与 500 两个分支里各写一遍。
+	 * @return bool
+	 */
+	protected static function isAjaxRequest()
+	{
+		return isset($_SERVER['HTTP_X_REQUESTED_WITH'])
+			&& strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 	}
 
 	/**

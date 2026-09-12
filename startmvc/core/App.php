@@ -54,31 +54,45 @@ class App
 		// 控制器响应方法（json/redirect/success/error 等）通过响应异常中断执行，
 		// 在此统一取出 Response 发送，保证不使用 exit() 截断框架收尾流程
 		try {
-			$response = Middleware::run($request, function($request) {
+			$result = Middleware::run($request, function($request) {
 				return $this->handleRequest($request);
 			});
 		} catch (HttpResponseException $e) {
-			$response = $e->getResponse();
+			$result = $e->getResponse();
 		}
 
-		// 输出响应内容
-		if ($response instanceof Response) {
-			// 控制器返回 Response 对象时统一交给它发送（状态码/响应头/内容）
-			$response->send();
-			if (config('trace')) {
-				self::outputTrace();
-			}
-		} elseif (is_string($response)) {
-			echo $response;
-			// 对于字符串响应，在末尾添加 trace 信息
-			if (config('trace')) {
-				self::outputTrace();
-			}
-		} elseif (is_array($response)) {
-			header('Content-Type: application/json');
-			echo json_encode($response);
+		// 统一响应出口：返回值归一化为 Response 后单点发送。
+		// 状态码 / 响应头 / Cookie / 响应体 / trace 全部由 Response::send() 负责，
+		// 不再在这里按类型分支重复一遍（改造前 trace 的判断散落在 App 与 Controller 三处，
+		// 且 JSON 响应被追加了 HTML 面板导致内容非法）
+		$this->sendResponse($result);
+	}
+
+	/**
+	 * 把中间件管道终点的返回值归一化为 Response 并发送
+	 *
+	 * - Response 对象：直接发送
+	 * - 数组：按 JSON 响应发送
+	 * - 字符串：按 HTML 响应发送
+	 * - null：控制器已自行输出（display() / content() / 裸 echo），
+	 *   此时不重复输出、也不追加 trace
+	 *
+	 * @param mixed $result 控制器方法的返回值
+	 * @return void
+	 */
+	private function sendResponse($result)
+	{
+		if ($result instanceof Response) {
+			$response = $result;
+		} elseif (is_array($result)) {
+			$response = (new Response())->json($result);
+		} elseif (is_string($result)) {
+			$response = (new Response())->html($result);
+		} else {
+			$response = (new Response())->withTrace(false);
 		}
-		// 注意：如果 $response 为 null（控制器直接输出了内容），trace 会在 Controller::display 中处理
+
+		$response->send();
 	}
 	
 	/**
