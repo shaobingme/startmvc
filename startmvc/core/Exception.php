@@ -46,36 +46,27 @@ class Exception
 
 	/**
 	 * 记录异常到日志
+	 *
+	 * 统一经由 Logger（与 DB、中间件等使用同一通道、同一格式），
+	 * 不再自建目录与文件名 —— 原先这里用 error_log() 写 {date}_error.log，
+	 * 而 Logger 写 {date}.log，同一站点的日志被劈成两个互不相干的通道。
+	 *
+	 * Logger 内部保证写入失败只返回 false 而不抛异常，调用方再包一层 Throwable 兜底。
+	 *
 	 * @param \Throwable $exception
 	 * @return void
 	 */
 	protected static function logException(\Throwable $exception)
 	{
-		$logPath = ROOT_PATH . 'runtime/logs';
-		
-		// 确保日志目录存在
-		if (!is_dir($logPath)) {
-			@mkdir($logPath, 0755, true);
-		}
-		
-		// 如果目录创建失败，尝试使用系统临时目录
-		if (!is_dir($logPath)) {
-			$logPath = sys_get_temp_dir();
-		}
-		
 		$message = sprintf(
-			"[%s] %s in %s:%d\nStack trace:\n%s\n",
-			date('Y-m-d H:i:s'),
+			"%s in %s:%d\nStack trace:\n%s",
 			$exception->getMessage(),
 			$exception->getFile(),
 			$exception->getLine(),
 			$exception->getTraceAsString()
 		);
-		
-		$logFile = $logPath . DIRECTORY_SEPARATOR . date('Y-m-d') . '_error.log';
-		
-		// 使用错误抑制符，避免因写入失败导致的额外异常
-		@error_log($message, 3, $logFile);
+
+		(new Logger())->error($message);
 	}
 
 	/**
@@ -92,8 +83,10 @@ class Exception
 
 		try {
 			self::logException($exception);
-		} catch (\Exception $e) {
-			// 日志记录失败时的处理
+		} catch (\Throwable $e) {
+			// 日志记录失败时的兜底。
+			// 必须捕获 \Throwable：PHP 8 下 \Error / \TypeError / \ParseError 不是 \Exception
+			// 的子类，只写 catch (\Exception) 会让日志环节的致命错误反过来中断异常处理。
 		}
 
 		// 404：路由未命中或目标不存在，返回正确的 404 状态码（而非一律 500）
