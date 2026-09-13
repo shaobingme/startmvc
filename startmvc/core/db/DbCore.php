@@ -285,8 +285,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取PDO实例
-     * @return PDO
+     * 底层 PDO 实例（首次调用会建立连接）
      */
     public function getPdo()
     {
@@ -315,11 +314,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 设置查询的表名（table方法的别名）
-     * 
-     * @param $table 表名
-     *
-     * @return $this
+     * table() 的别名
      */
     public function from($table)
     {
@@ -342,10 +337,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取字段的最大值
-     * 
-     * @param string $field 字段名
-     * @return mixed 字段的最大值
+     * 字段最大值
      */
     public function max($field)
     {
@@ -353,10 +345,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取字段的最小值
-     * 
-     * @param string $field 字段名
-     * @return mixed 字段的最小值
+     * 字段最小值
      */
     public function min($field)
     {
@@ -518,14 +507,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 内连接
-     * 
-     * @param string $table 要连接的表名
-     * @param string $field1 第一个字段
-     * @param string $operator 操作符
-     * @param string $field2 第二个字段
-     *
-     * @return $this
+     * INNER JOIN 连接（join() 的变体）
      */
     public function innerJoin($table, $field1, $operator = '', $field2 = '')
     {
@@ -533,14 +515,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 左连接
-     * 
-     * @param string $table 要连接的表名
-     * @param string $field1 第一个字段
-     * @param string $operator 操作符
-     * @param string $field2 第二个字段
-     *
-     * @return $this
+     * LEFT JOIN 连接（join() 的变体）
      */
     public function leftJoin($table, $field1, $operator = '', $field2 = '')
     {
@@ -548,14 +523,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 右连接
-     * 
-     * @param string $table 要连接的表名
-     * @param string $field1 第一个字段
-     * @param string $operator 操作符
-     * @param string $field2 第二个字段
-     *
-     * @return $this
+     * RIGHT JOIN 连接（join() 的变体）
      */
     public function rightJoin($table, $field1, $operator = '', $field2 = '')
     {
@@ -563,14 +531,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 完全外连接
-     * 
-     * @param string $table 要连接的表名
-     * @param string $field1 第一个字段
-     * @param string $operator 操作符
-     * @param string $field2 第二个字段
-     *
-     * @return $this
+     * FULL OUTER JOIN 连接（join() 的变体）
      */
     public function fullOuterJoin($table, $field1, $operator = '', $field2 = '')
     {
@@ -578,14 +539,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 左外连接
-     * 
-     * @param string $table 要连接的表名
-     * @param string $field1 第一个字段
-     * @param string $operator 操作符
-     * @param string $field2 第二个字段
-     *
-     * @return $this
+     * LEFT OUTER JOIN 连接（join() 的变体）
      */
     public function leftOuterJoin($table, $field1, $operator = '', $field2 = '')
     {
@@ -593,14 +547,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 右外连接
-     * 
-     * @param string $table 要连接的表名
-     * @param string $field1 第一个字段
-     * @param string $operator 操作符
-     * @param string $field2 第二个字段
-     *
-     * @return $this
+     * RIGHT OUTER JOIN 连接（join() 的变体）
      */
     public function rightOuterJoin($table, $field1, $operator = '', $field2 = '')
     {
@@ -942,10 +889,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 原生WHERE条件（OR 连接）
-     *
-     * @param string $condition 原生SQL条件片段
-     * @return $this
+     * OR 连接的原生 WHERE 条件（whereRaw() 的 OR 版本）
      */
     public function orWhereRaw($condition)
     {
@@ -953,13 +897,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR WHERE条件查询
-     *
-     * @param array|string $where 条件
-     * @param string|null  $operator 操作符
-     * @param string|null  $val 值
-     *
-     * @return $this
+     * OR WHERE 条件（where() 的 OR 版本）
      */
     public function orWhere($where, $operator = null, $val = null)
     {
@@ -967,13 +905,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * NOT WHERE条件查询
-     * 
-     * @param array|string $where 条件
-     * @param string|null  $operator 操作符
-     * @param string|null  $val 值
-     *
-     * @return $this
+     * NOT WHERE 条件（where() 取反后整段加 NOT）
      */
     public function notWhere($where, $operator = null, $val = null)
     {
@@ -981,13 +913,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR NOT WHERE条件查询
-     * 
-     * @param array|string $where 条件
-     * @param string|null  $operator 操作符
-     * @param string|null  $val 值
-     *
-     * @return $this
+     * OR NOT WHERE 条件（where() 取反后整段加 NOT，用 OR 连接）
      */
     public function orNotWhere($where, $operator = null, $val = null)
     {
@@ -1023,9 +949,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * @param string $where
-     *
-     * @return $this
+     * 非 NULL 判断（whereNull() 的取反，支持数组）
      */
     public function whereNotNull($where)
     {
@@ -1106,12 +1030,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * NOT IN条件查询
-     * 
-     * @param string $field 字段名
-     * @param array  $keys 值数组
-     *
-     * @return $this
+     * NOT IN 条件（in() 的取反）
      */
     public function notIn($field, array $keys)
     {
@@ -1119,12 +1038,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR IN条件查询
-     * 
-     * @param string $field 字段名
-     * @param array  $keys 值数组
-     *
-     * @return $this
+     * OR IN 条件（in() 的 OR 版本）
      */
     public function orIn($field, array $keys)
     {
@@ -1132,12 +1046,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR NOT IN条件查询
-     * 
-     * @param string $field 字段名
-     * @param array  $keys 值数组
-     *
-     * @return $this
+     * OR NOT IN 条件（in() 的取反 + OR 连接）
      */
     public function orNotIn($field, array $keys)
     {
@@ -1162,12 +1071,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * NOT FIND_IN_SET条件查询
-     * 
-     * @param string $field 字段名
-     * @param string $key 查找的值
-     *
-     * @return $this
+     * NOT FIND_IN_SET 条件（findInSet() 的取反）
      */
     public function notFindInSet($field, $key)
     {
@@ -1175,12 +1079,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR FIND_IN_SET条件查询
-     * 
-     * @param string $field 字段名
-     * @param string $key 查找的值
-     *
-     * @return $this
+     * OR FIND_IN_SET 条件（findInSet() 的 OR 版本）
      */
     public function orFindInSet($field, $key)
     {
@@ -1188,12 +1087,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR NOT FIND_IN_SET条件查询
-     * 
-     * @param string $field 字段名
-     * @param string $key 查找的值
-     *
-     * @return $this
+     * OR NOT FIND_IN_SET 条件（findInSet() 的取反 + OR 连接）
      */
     public function orNotFindInSet($field, $key)
     {
@@ -1219,13 +1113,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * NOT BETWEEN条件查询
-     * 
-     * @param string     $field 字段名
-     * @param string|int $value1 最小值
-     * @param string|int $value2 最大值
-     *
-     * @return $this
+     * NOT BETWEEN 条件（between() 的取反）
      */
     public function notBetween($field, $value1, $value2)
     {
@@ -1233,13 +1121,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR BETWEEN条件查询
-     * 
-     * @param string     $field 字段名
-     * @param string|int $value1 最小值
-     * @param string|int $value2 最大值
-     *
-     * @return $this
+     * OR BETWEEN 条件（between() 的 OR 版本）
      */
     public function orBetween($field, $value1, $value2)
     {
@@ -1247,13 +1129,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR NOT BETWEEN条件查询
-     * 
-     * @param string     $field 字段名
-     * @param string|int $value1 最小值
-     * @param string|int $value2 最大值
-     *
-     * @return $this
+     * OR NOT BETWEEN 条件（between() 的取反 + OR 连接）
      */
     public function orNotBetween($field, $value1, $value2)
     {
@@ -1278,12 +1154,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR LIKE条件查询
-     * 
-     * @param string $field 字段名
-     * @param string $data 匹配的数据
-     *
-     * @return $this
+     * OR LIKE 条件（like() 的 OR 版本）
      */
     public function orLike($field, $data)
     {
@@ -1291,12 +1162,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * NOT LIKE条件查询
-     * 
-     * @param string $field 字段名
-     * @param string $data 匹配的数据
-     *
-     * @return $this
+     * NOT LIKE 条件（like() 的取反）
      */
     public function notLike($field, $data)
     {
@@ -1304,12 +1170,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * OR NOT LIKE条件查询
-     * 
-     * @param string $field 字段名
-     * @param string $data 匹配的数据
-     *
-     * @return $this
+     * OR NOT LIKE 条件（like() 的取反 + OR 连接）
      */
     public function orNotLike($field, $data)
     {
@@ -1388,11 +1249,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 设置查询结果的分组（groupBy方法的别名，保持API一致性）
-     * 
-     * @param string|array $groupBy 分组字段
-     *
-     * @return $this
+     * group() 的别名。保留此名称以贴合 SQL 习惯
      */
     public function groupBy($groupBy)
     {
@@ -1425,9 +1282,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取影响的行数
-     *
-     * @return int
+     * 影响行数
      */
     public function numRows()
     {
@@ -1435,9 +1290,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取最后插入的ID
-     *
-     * @return int|null
+     * 最后插入记录的自增 ID，无插入时为 null
      */
     public function insertId()
     {
@@ -1533,13 +1386,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取单条记录（现代化命名）
-     * 注：此方法是 first() 的别名，为了提供更现代的API而添加，不是接口要求
-     * 
-     * @param bool|string $returnSql 是否仅返回SQL或返回类型
-     * @param string $argument 参数（当$returnSql指定为类名时使用）
-     *
-     * @return mixed 返回单条记录
+     * first() 的别名，用于语义更清晰的单条读取
      */
     public function one($returnSql = null, $argument = null)
     {
@@ -1605,13 +1452,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取多条记录（现代化命名，与one()对称）
-     * 注：此方法是 get() 的别名，为了提供更现代的API而添加，不是接口要求
-     * 
-     * @param bool|string $returnSql 是否仅返回SQL或返回类型
-     * @param string $argument 参数（当$returnSql指定为类名时使用）
-     *
-     * @return mixed 返回多条记录
+     * get() 的别名，与 one() 对称
      */
     public function many($returnSql = null, $argument = null)
     {
@@ -1927,9 +1768,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 分析表
-     *
-     * @return mixed
+     * 分析表，供优化器统计信息
      */
     public function analyze()
     {
@@ -1937,9 +1776,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 检查表
-     *
-     * @return mixed
+     * 检查表完整性
      */
     public function check()
     {
@@ -1947,9 +1784,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 校验表
-     *
-     * @return mixed
+     * 计算表校验和
      */
     public function checksum()
     {
@@ -1957,9 +1792,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 优化表
-     *
-     * @return mixed
+     * 优化表（整理碎片）
      */
     public function optimize()
     {
@@ -1968,8 +1801,6 @@ class DbCore implements DbInterface
 
     /**
      * 修复表
-     *
-     * @return mixed
      */
     public function repair()
     {
@@ -1977,9 +1808,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 清空表数据
-     *
-     * @return mixed
+     * 清空表数据（不可回滚，且不触发 DELETE 全表守卫）
      */
     public function truncate()
     {
@@ -1987,9 +1816,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 删除表
-     *
-     * @return mixed
+     * 删除表（不可回滚，请谨慎）
      */
     public function drop()
     {
@@ -2157,12 +1984,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取所有查询结果
-     * 
-     * @param string $type 返回类型
-     * @param string $argument 参数
-     *
-     * @return mixed
+     * 取回全部结果集
      */
     public function fetchAll($type = null, $argument = null)
     {
@@ -2549,9 +2371,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取查询次数
-     *
-     * @return int
+     * 本实例累计执行的查询次数
      */
     public function queryCount()
     {
@@ -2559,9 +2379,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 获取当前查询语句
-     *
-     * @return string|null
+     * 当前查询语句（未经预处理绑定）
      */
     public function getQuery()
     {
@@ -2666,9 +2484,7 @@ class DbCore implements DbInterface
     }
     
     /**
-     * 获取SQL日志列表
-     *
-     * @return array 所有记录的SQL日志
+     * 本请求内全部 SQL 日志
      */
     public static function getSqlLogs()
     {
@@ -2787,10 +2603,7 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 切换布尔字段值（toggle方法是invert的别名）
-     * 
-     * @param string $column 列名
-     * @return int|bool 影响的行数或失败时返回false
+     * invert() 的别名
      */
     public function toggle($column)
     {
