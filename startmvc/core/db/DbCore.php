@@ -650,16 +650,7 @@ class DbCore implements DbInterface
             $condition = 'NOT (' . $condition . ')';
         }
 
-        if ($this->grouped) {
-            $condition = '(' . $condition;
-            $this->grouped = false;
-        }
-
-        $this->where = is_null($this->where) 
-            ? $condition 
-            : $this->where . ' ' . $logic . ' ' . $condition;
-
-        return $this;
+        return $this->appendWhere($condition, $logic);
     }
 
     /**
@@ -947,19 +938,7 @@ class DbCore implements DbInterface
             return $this;
         }
 
-        // 逻辑连接符白名单
-        $logic = strtoupper(trim((string)$logic)) === 'OR' ? 'OR' : 'AND';
-
-        if ($this->grouped) {
-            $condition = '(' . $condition;
-            $this->grouped = false;
-        }
-
-        $this->where = is_null($this->where)
-            ? $condition
-            : $this->where . ' ' . $logic . ' ' . $condition;
-
-        return $this;
+        return $this->appendWhere($condition, $logic);
     }
 
     /**
@@ -1016,17 +995,31 @@ class DbCore implements DbInterface
     }
 
     /**
-     * @param string $where
-     * @param bool   $not
+     * 判断字段为NULL（支持数组批量）
+     *
+     * 支持单字段与字段数组两种形式；数组形式逐字段生成条件，用 AND 连接。
+     * 例：whereNull('deleted_at') / whereNull(['a', 'b'])
+     *
+     * @param string|array $where 字段名或字段名数组
+     * @param bool         $not   是否取 NOT NULL
      *
      * @return $this
      */
     public function whereNull($where, $not = false)
     {
-        $where = $this->validateIdentifier($where, true) . ' IS ' . ($not ? 'NOT' : '') . ' NULL';
-        $this->where = is_null($this->where) ? $where : $this->where . ' ' . 'AND ' . $where;
+        // 数组形式：逐字段生成条件后整体交给 appendWhere（保持 grouped 语义一致）
+        if (is_array($where)) {
+            foreach ($where as $column) {
+                $this->whereNull($column, $not);
+            }
+            return $this;
+        }
 
-        return $this;
+        // 注意：' IS ' 与 NULL 之间不留空格——NOT 分支由 NOT 自带尾部空格，避免 "IS  NOT NULL" 双空格
+        $condition = $this->validateIdentifier($where, true)
+            . ' IS ' . ($not ? 'NOT ' : '') . 'NULL';
+
+        return $this->appendWhere($condition, 'AND');
     }
 
     /**
@@ -1037,6 +1030,40 @@ class DbCore implements DbInterface
     public function whereNotNull($where)
     {
         return $this->whereNull($where, true);
+    }
+
+    /**
+     * 追加一个 WHERE 条件片段（所有条件方法的统一出口）
+     *
+     * 集中处理两件容易各写各的、从而出错的事：
+     *   ① grouped() 语义：若当前处于 grouped() 内，本条件需以 '(' 开头，
+     *      由 grouped() 结尾统一补 ')'；并复位 $grouped 标记（只对第一条条件生效）。
+     *   ② AND/OR 连接：拼接时统一加一个空格。
+     *
+     * 历史上 where()/whereRaw()/in()/findInSet()/between()/like() 各自复制了这段逻辑，
+     * 而 whereNull()/whereNotNull() 漏了 ① —— 导致 grouped() 内使用 whereNull() 时
+     * 生成的 SQL 左括号不闭合（如 "deleted_at IS NULL)"），属语法错误。
+     * 现统一走本方法，杜绝同类遗漏。
+     *
+     * @param string $condition 已构建好的条件片段（不含括号与连接词）
+     * @param string $andOr     连接词 AND/OR
+     *
+     * @return $this
+     */
+    protected function appendWhere($condition, $andOr = 'AND')
+    {
+        if ($this->grouped) {
+            $condition = '(' . $condition;
+            $this->grouped = false;
+        }
+
+        $andOr = strtoupper(trim((string)$andOr)) === 'OR' ? 'OR' : 'AND';
+
+        $this->where = is_null($this->where)
+            ? $condition
+            : $this->where . ' ' . $andOr . ' ' . $condition;
+
+        return $this;
     }
 
     /**
@@ -1072,14 +1099,7 @@ class DbCore implements DbInterface
             }
             $where = $this->validateIdentifier($field, true) . ' ' . $type . 'IN (' . implode(', ', $_keys) . ')';
 
-            if ($this->grouped) {
-                $where = '(' . $where;
-                $this->grouped = false;
-            }
-
-            $this->where = is_null($this->where)
-                ? $where
-                : $this->where . ' ' . $andOr . ' ' . $where;
+            $this->appendWhere($where, $andOr);
         }
 
         return $this;
@@ -1138,16 +1158,7 @@ class DbCore implements DbInterface
     {
         $where =  $type . 'FIND_IN_SET (' . $this->bind($key) . ', ' . $this->validateIdentifier($field, true) . ')';
 
-        if ($this->grouped) {
-            $where = '(' . $where;
-            $this->grouped = false;
-        }
-
-        $this->where = is_null($this->where)
-            ? $where
-            : $this->where . ' ' . $andOr . ' ' . $where;
-
-        return $this;
+        return $this->appendWhere($where, $andOr);
     }
 
     /**
@@ -1203,16 +1214,8 @@ class DbCore implements DbInterface
     public function between($field, $value1, $value2, $type = '', $andOr = 'AND')
     {
         $where = '(' . $this->validateIdentifier($field, true) . ' ' . $type . 'BETWEEN ' . ($this->bind($value1) . ' AND ' . $this->bind($value2)) . ')';
-        if ($this->grouped) {
-            $where = '(' . $where;
-            $this->grouped = false;
-        }
 
-        $this->where = is_null($this->where)
-            ? $where
-            : $this->where . ' ' . $andOr . ' ' . $where;
-
-        return $this;
+        return $this->appendWhere($where, $andOr);
     }
 
     /**
@@ -1271,16 +1274,7 @@ class DbCore implements DbInterface
     {
         $where = $this->validateIdentifier($field, true) . ' ' . $type . 'LIKE ' . $this->bind($data);
 
-        if ($this->grouped) {
-            $where = '(' . $where;
-            $this->grouped = false;
-        }
-
-        $this->where = is_null($this->where)
-            ? $where
-            : $this->where . ' ' . $andOr . ' ' . $where;
-
-        return $this;
+        return $this->appendWhere($where, $andOr);
     }
 
     /**
