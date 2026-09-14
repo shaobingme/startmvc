@@ -5,8 +5,8 @@ use startmvc\core\Controller;
 class IndexController extends Controller{
 
 	public function indexAction(){
-		$admin="hello world!!admin";
-		$this->assign('admin',$admin);
+		$admin = '欢迎使用后台模块';
+		$this->assign('admin', $admin);
 		$this->display();
 	}
 }
