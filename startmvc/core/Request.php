@@ -29,9 +29,9 @@ namespace startmvc\core;
  * @method bool isHttps() 是否HTTPS请求
  * @method string ip() 客户端IP（可信代理规则见 resolveIp）
  * @method array all() 所有输入（GET + POST）
- * @method mixed input(string $key = null, mixed $default = null) 获取输入值
- * @method mixed get(string $key, array $options = []) 获取GET参数
- * @method mixed post(string $key = '', array|mixed $options = []) 获取POST参数
+ * @method mixed input(string $key = null, mixed $default = null, mixed $options = []) 获取输入值（支持点路径）
+ * @method mixed get(string $key = null, mixed $options = []) 获取GET参数（支持点路径，键为空返回全部）
+ * @method mixed post(string $key = '', array|mixed $options = []) 获取POST参数（支持点路径）
  * @method string postInput() 原始POST输入
  * @method mixed getJson(bool $assoc = true) JSON格式POST数据
  * @method mixed header(string $key = null, mixed $default = null) 获取请求头
@@ -215,6 +215,24 @@ class Request
         return $request->route($key, $default);
     }
 
+    /**
+     * 获取当前请求实例
+     *
+     * 供全局助手 input() 等无法注入 Request 的场景使用：优先返回容器中绑定的
+     * 唯一请求快照（与中间件、控制器读到的是同一份数据，测试可注入模拟请求），
+     * 未绑定时回退到基于当前超全局变量构造的实例。
+     *
+     * 与静态调用（Request::get() 等经 __callStatic 每次新建临时实例）的区别：
+     * 本方法始终指向贯穿本次请求的实例，不会丢失中间件附加的数据。
+     *
+     * @return static
+     */
+    public static function current()
+    {
+        $request = Container::getInstance()->make(static::class);
+        return $request instanceof self ? $request : new static();
+    }
+
     /* ==================================================================
      * 实例 API（private：保证静态/实例两种调用方式都能经魔术方法分发，
      * 详见类注释。类内部相互调用不受影响）
@@ -358,32 +376,48 @@ class Request
     }
 
     /**
-     * 获取输入值
-     * @param string $key 键名
-     * @param mixed $default 默认值
+     * 获取输入值（GET + POST，POST 优先）
+     *
+     * 键名支持点路径，可直接读取嵌套数组（如 user.name、list.0.id）；
+     * 键不存在或路径不匹配时回退 $default，调用方无需判空。
+     *
+     * @param string|null $key 键名，支持点路径；为空时返回全部输入
+     * @param mixed $default 取值失败时的默认值
+     * @param array $options 处理选项，透传给 Http::handling（type / function / filter）
      * @return mixed
      */
-    private function input($key = null, $default = null)
+    private function input($key = null, $default = null, $options = [])
     {
-        $data = $this->all();
-        return $key ? ($data[$key] ?? $default) : $data;
+        if (!is_array($options)) {
+            $options = [];
+        }
+        // 默认值经 options 传给 handling，统一处理「键缺失」与「值为 null」两种情况
+        if (!array_key_exists('default', $options)) {
+            $options['default'] = $default;
+        }
+        return Http::handling(self::resolvePath($this->all(), $key), $options);
     }
 
     /**
      * 获取GET参数
-     * @param string $key 键名
-     * @param array $options 处理选项
+     *
+     * 键名支持点路径（如 user.name / list.0.id）；键为空时返回全部 GET 数据。
+     *
+     * @param string $key 键名，支持点路径；为空时返回全部 GET 数据
+     * @param array $options 处理选项（见 Http::handling）
      * @return mixed
      */
-    private function get($key, $options = [])
+    private function get($key = null, $options = [])
     {
-        $val = isset($this->get[$key]) ? $this->get[$key] : null;
-        return Http::handling($val, $options);
+        return Http::handling(self::resolvePath($this->get, $key), $options);
     }
 
     /**
      * 获取POST参数
-     * @param string $key 键名(为空则返回所有POST数据)
+     *
+     * 键名支持点路径（如 user.name / list.0.id）。
+     *
+     * @param string $key 键名(为空则返回所有POST数据)，支持点路径
      * @param array|mixed $options 处理选项；传入标量时视为默认值 default
      * @return mixed
      */
@@ -394,11 +428,11 @@ class Request
             $options = ['default' => $options];
         }
 
-        // 不传 key 时返回所有 POST 数据；传了 key 但不存在时返回 null（交由 handling 走默认值逻辑）
+        // 不传 key 时返回所有 POST 数据（POST 为空时保持旧有的 null 语义，交由 handling 走默认值）
         if ($key === '' || $key === null) {
             $val = $this->post ?: null;
         } else {
-            $val = array_key_exists($key, $this->post) ? $this->post[$key] : null;
+            $val = self::resolvePath($this->post, $key);
         }
 
         return Http::handling($val, $options);
@@ -444,6 +478,39 @@ class Request
     }
 
     /* ==================== 共享解析逻辑（静态/实例复用） ==================== */
+
+    /**
+     * 按点路径读取嵌套数组值
+     *
+     * 支持形如 user.name、list.0.id 的路径，免去调用方层层 isset 判断。
+     * 任一层不存在或不是数组时返回 null，由调用方（Http::handling）统一套用默认值。
+     *
+     * @param array $data 数据源（GET / POST / 合并后的输入）
+     * @param string|null $key 键名或点路径；为空时返回整个数据源
+     * @return mixed
+     */
+    protected static function resolvePath(array $data, $key)
+    {
+        if ($key === null || $key === '') {
+            return $data;
+        }
+
+        // 无点号：常规单键取值，避免无谓的字符串拆分
+        if (strpos($key, '.') === false) {
+            return array_key_exists($key, $data) ? $data[$key] : null;
+        }
+
+        // 点路径：逐层下钻
+        $val = $data;
+        foreach (explode('.', $key) as $segment) {
+            if (!is_array($val) || !array_key_exists($segment, $val)) {
+                return null;
+            }
+            $val = $val[$segment];
+        }
+
+        return $val;
+    }
 
     /**
      * 从 server 数组构建请求头映射

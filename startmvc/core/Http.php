@@ -19,6 +19,7 @@ class Http
      * @param array $options 处理选项
      *                       - default: 默认值，当$val为null时使用
      *                       - type: 类型转换('string', 'int', 'float', 'array', 'bool')
+     *                               bool 采用宽松判定：'0'/'false'/'off'/'no'/'' 均视为 false
      *                       - function: 要应用的函数，可以是函数名或函数名数组
      *                       - filter: 是否过滤HTML特殊字符(默认为false；输入端不转义，输出时请使用e()函数)
      * @return mixed 处理后的值
@@ -46,7 +47,7 @@ class Http
 	                $val = (array)$val;
 	                break;
 	            case 'bool':
-	                $val = (bool)$val;
+	                $val = self::toBool($val);
 	                break;
 	            default:
 	                $val = (string)$val;
@@ -86,6 +87,36 @@ class Http
         }
         
         return $val;
+    }
+
+    /**
+     * 宽松布尔转换
+     *
+     * 与 PHP 原生 (bool) 转换不同：'0' / 'false' / 'off' / 'no' / '' 一律判为 false，
+     * 以适配表单与查询串中「字符串型布尔」的常见写法——原生 (bool)'false' 结果是 true，
+     * 直接用会让「关闭」被误判为「开启」。
+     *
+     * @param mixed $val
+     * @return bool
+     */
+    private static function toBool($val)
+    {
+        if (is_bool($val)) {
+            return $val;
+        }
+        if (is_array($val)) {
+            return !empty($val);
+        }
+        if (is_string($val)) {
+            $val = strtolower(trim($val));
+            if (in_array($val, ['0', 'false', 'off', 'no', 'null', ''], true)) {
+                return false;
+            }
+            if (in_array($val, ['1', 'true', 'on', 'yes'], true)) {
+                return true;
+            }
+        }
+        return (bool)$val;
     }
 
     /**

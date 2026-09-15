@@ -294,3 +294,61 @@ function db($table = '', $config = [])
 function get_ip() {
 	return \startmvc\core\Request::ip();
 }
+
+/* ==================== 输入取值助手 ====================
+ * 与 Request::input() 同源：类做引擎、函数做语法糖，风格与 config()/Config、
+ * cache()/Cache、db()/Db 一致。取值来源为「POST 优先、GET 兜底」，
+ * 键名支持点路径（如 user.name / list.0.id）。
+ * 输入默认不转义——输出时请用 e()，避免双重转义。
+ */
+
+/**
+ * 取输入值（POST 优先，GET 兜底）
+ *
+ * @param string|null $key     键名，支持点路径；为空返回全部输入
+ * @param mixed       $default 取值失败时的默认值
+ * @param string      $type    类型转换：''|string|int|float|bool|array
+ * @param bool        $filter  是否 HTML 转义（默认否）
+ * @return mixed
+ *
+ * 用法：
+ *   input('id')                         取 id（字符串）
+ *   input('id', 0, 'int')               取 id 转 int，缺省 0
+ *   input('user.name')                  点路径取嵌套值
+ *   input('list.0.id', 0, 'int')        点路径下钻 + 类型转换
+ *   input('agree', false, 'bool')       'false'/'0'/'off' 均判为 false
+ *   input('title', '', 'string', true)  取值并转义
+ *   input()                             返回全部输入
+ */
+function input($key = null, $default = null, $type = '', $filter = false)
+{
+    return \startmvc\core\Request::current()->input($key, $default, [
+        'type'   => $type,
+        'filter' => (bool)$filter,
+    ]);
+}
+
+/**
+ * HTML 转义输出
+ *
+ * 与输入端「不转义」策略配套：输入层保持原始数据，输出到 HTML 时统一在此转义，
+ * 避免「输入转义 + 输出转义」造成的双重转义（&amp;amp; 之类）与数据污染。
+ * 数组会递归转义，便于直接用于列表渲染。
+ *
+ * @param mixed $value 待转义的值（数组将递归处理）
+ * @param bool $doubleEncode 是否对已是 HTML 实体的内容再次转义（默认 true）
+ * @return mixed
+ */
+function e($value, $doubleEncode = true)
+{
+    if (is_array($value)) {
+        foreach ($value as $k => $v) {
+            $value[$k] = e($v, $doubleEncode);
+        }
+        return $value;
+    }
+    if ($value === null) {
+        return '';
+    }
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8', $doubleEncode);
+}
