@@ -83,6 +83,13 @@ class Validator
      */
     private $_tagMap = [];
     /**
+     * 规则执行失败标志
+     * 显式区分「验证失败」与「字段值本身为 false」，不再依赖对返回值的重载判断；
+     * 嵌套规则递归失败时借它向上传播，避免失败被吞掉
+     * @var bool
+     */
+    private $_ruleFailed = false;
+    /**
      * Constructor
      */
     public function __construct()
@@ -130,14 +137,17 @@ class Validator
     public function validate(array $data = [])
     {
         if (count($this->_rules) == 0) {
+            // 无规则：视为通过，原始数据仍可经 getAllData() 取回
+            $this->_finalData = $data;
             return true;
         }
+        $this->_ruleFailed = false;
         $result = $this->_perform($data, $this->_rules);
-        if (false === $result) {
+        if ($this->_ruleFailed) {
+            // 验证失败时不更新 _finalData，getData()/getAllData() 返回空
             return false;
-        } else {
-            $this->_finalData = $result;
         }
+        $this->_finalData = $result;
         if (count($this->_errorList) == 0) {
             return true;
         }
@@ -147,7 +157,7 @@ class Validator
      * 递归执行规则
      * @param $data
      * @param $rules
-     * @return bool
+     * @return bool|array
      */
     private function _perform($data, $rules)
     {
@@ -156,11 +166,17 @@ class Validator
                 continue;
             }
             if (is_array($rule)) {
-                $data[$field] = $this->_perform($data[$field] ?? null, $rule);
+                // 嵌套规则：内层失败时通过 _ruleFailed 向上传播并立即中止，
+                // 避免内层返回的 false 被当作字段值写入数据
+                $sub = $this->_perform($data[$field] ?? null, $rule);
+                if ($this->_ruleFailed) {
+                    return false;
+                }
+                $data[$field] = $sub;
             } else {
                 $rule = $this->_parseOneRule($rule);
                 $result = $this->_executeOneRule($data, $field, $rule['rules'], $rule['label'], $rule['msg']);
-                if (false === $result) {
+                if ($this->_ruleFailed) {
                     return false;
                 }
                 if (!is_bool($result)) {
@@ -191,15 +207,17 @@ class Validator
     }
     /**
      * 执行一条验证规则
+     * 返回值为字段最终值（可能恰为 false），失败与否以 _ruleFailed 标志为准
      * @param $data
      * @param $field
      * @param array $rules
      * @param string $label
      * @param string $msg
-     * @return bool
+     * @return bool|mixed
      */
     private function _executeOneRule($data, $field, $rules = [], $label = '', $msg = '')
     {
+        $this->_ruleFailed = false;
         if (empty($rules)) {
             return true;
         }
@@ -213,6 +231,7 @@ class Validator
                     $msg = sprintf($this->_getErrorTpl('required'), $label ?: $field);
                 }
                 $this->_setError($field, $msg);
+                $this->_ruleFailed = true;
                 return false;
             }
             $rules = array_diff($rules, ['required']);
@@ -275,7 +294,7 @@ class Validator
                     }
                 }
                 $this->_setError($field, $msg);
-                //continue;
+                $this->_ruleFailed = true;
                 //break when an error accured
                 return false;
             }
@@ -392,6 +411,73 @@ class Validator
     public function getErrorString($newline = "\n"): string
     {
         return join($newline, $this->_errorList);
+    }
+
+    /**
+     * 字段白名单过滤（自动过滤的独立入口，与验证解耦）
+     *
+     * 只保留 $fields 中声明的顶层字段，其余字段（含恶意附加字段）一律剔除。
+     * 无需设置验证规则即可单独使用。
+     *
+     * @param array $data 原始数据
+     * @param array $fields 允许保留的字段名列表
+     * @return array
+     */
+    public static function filter(array $data, array $fields): array
+    {
+        return array_intersect_key($data, array_flip($fields));
+    }
+
+    /**
+     * 数据自动填充（自动处理的独立入口）
+     *
+     * $auto 规则：
+     * - 标量值：仅当字段缺失或为 null 时填充（默认值语义，不覆盖已有值）
+     * - callable：一律调用，参数为当前字段值（字段缺失时为 null）；
+     *   返回 null 则放弃写入该字段（可借此实现条件跳过）
+     * - 键名为 insert / update 且值为数组：场景组，仅当 $scene 与键名一致时应用
+     *
+     * 注意：callable 必须可单参调用（如 trim / md5 / strtoupper / 闭包），
+     * 多必参函数（如 password_hash）请用闭包包一层。
+     *
+     * 示例：
+     *   Validator::fill($data, [
+     *       'status'   => 1,
+     *       'name'     => 'trim',
+     *       'password' => function ($v) {
+     *           return $v === null ? null : password_hash($v, PASSWORD_DEFAULT);
+     *       },
+     *       'insert'   => ['reg_ip' => 'get_ip'],
+     *   ], 'insert');
+     *
+     * @param array $data 原始数据
+     * @param array $auto 填充规则
+     * @param string|null $scene 场景名（insert / update），null 时场景组不生效
+     * @return array
+     */
+    public static function fill(array $data, array $auto, $scene = null): array
+    {
+        $rules = [];
+        foreach ($auto as $field => $value) {
+            if (($field === 'insert' || $field === 'update') && is_array($value)) {
+                if ($scene === $field) {
+                    $rules += $value;
+                }
+            } else {
+                $rules[$field] = $value;
+            }
+        }
+        foreach ($rules as $field => $value) {
+            if (is_callable($value)) {
+                $result = call_user_func($value, isset($data[$field]) ? $data[$field] : null);
+                if ($result !== null) {
+                    $data[$field] = $result;
+                }
+            } elseif (!isset($data[$field]) || $data[$field] === null) {
+                $data[$field] = $value;
+            }
+        }
+        return $data;
     }
     /**
      * Required
