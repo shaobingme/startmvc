@@ -109,6 +109,21 @@ class DbCore implements DbInterface
     protected $bindings = [];
 
     /**
+     * @var array JOIN ON 值形式的绑定参数（独立于 $bindings 收集）
+     * join() 的调用顺序不固定（可能在 where() 之前或之后），而 SQL 文本中
+     * JOIN 恒在 WHERE 之前；若混入 $bindings 会按调用序错位。构建时由
+     * buildSelectQuery()/buildUpdateQuery() 按 SQL 文本顺序合并进 $bindings。
+     */
+    protected $joinBindings = [];
+
+    /**
+     * @var int joinNode() 前置复制的绑定参数数量（子查询 WHERE 占位符
+     * 位于 SELECT 列表，在 SQL 文本中最先出现），供 buildSelectQuery()
+     * 把 JOIN 绑定插到子查询绑定之后、主 WHERE 绑定之前
+     */
+    protected $subqueryBindingsCount = 0;
+
+    /**
      * @var bool 是否允许无WHERE条件的全表更新/删除（危险操作，默认禁止）
      */
     protected $allowFullTable = false;
@@ -493,9 +508,12 @@ class DbCore implements DbInterface
 
         $on = $field1;
         if (!is_null($operator)) {
-            $on = !in_array($operator, $this->operators)
-                // 两参形式时 $operator 是值，必须转义
-                ? $this->validateIdentifier($field1, true) . ' = ' . $this->escape($operator) . (!is_null($field2) ? ' ' . $field2 : '')
+            $isValueForm = !in_array($operator, $this->operators);
+            $on = $isValueForm
+                // 两参形式时 $operator 是值，走占位符绑定（与 where 等构建方法一致，
+                // 从机制上杜绝注入，不再依赖 PDO::quote 与连接字符集）；
+                // 绑定进 $joinBindings 而非 $bindings，避免与 WHERE 绑定按调用序错位
+                ? $this->validateIdentifier($field1, true) . ' = ' . $this->bindJoinValue($operator) . (!is_null($field2) ? ' ' . $field2 : '')
                 : $this->validateIdentifier($field1, true) . ' ' . $operator . ' ' . $this->validateIdentifier($field2, true);
         }
 
@@ -1467,6 +1485,20 @@ class DbCore implements DbInterface
      */
     protected function buildSelectQuery()
     {
+        // JOIN 绑定按 SQL 文本顺序合并进 $bindings：
+        // joinNode 子查询占位符（如有，位于 SELECT 列表，最先出现）
+        // → JOIN ON 占位符 → 主 WHERE 占位符。
+        // $subqueryBindingsCount 是 joinNode() 记录的前置复制数；消费后清零防重复合并。
+        if ($this->subqueryBindingsCount > 0) {
+            $head = array_slice($this->bindings, 0, $this->subqueryBindingsCount);
+            $tail = array_slice($this->bindings, $this->subqueryBindingsCount);
+            $this->bindings = array_merge($head, $this->joinBindings, $tail);
+            $this->subqueryBindingsCount = 0;
+        } else {
+            $this->bindings = array_merge($this->joinBindings, $this->bindings);
+        }
+        $this->joinBindings = [];
+
         $query = 'SELECT ' . $this->select . ' FROM ' . $this->from;
 
         if (!is_null($this->join)) {
@@ -1649,7 +1681,15 @@ class DbCore implements DbInterface
      */
     protected function buildUpdateQuery(array $data)
     {
-        $query = 'UPDATE ' . $this->from . ' SET ';
+        $query = 'UPDATE ' . $this->from;
+
+        // UPDATE ... JOIN ... ON ... SET ...：JOIN 子句位于 SET 之前，
+        // 必须渲染（此前 $this->join 被静默丢弃，UPDATE+JOIN 实际不可用）
+        if (!is_null($this->join)) {
+            $query .= $this->join;
+        }
+
+        $query .= ' SET ';
 
         // SET子句的占位符在SQL文本中先于WHERE出现，但WHERE的绑定先于SET收集，
         // 因此先暂存WHERE绑定，待SET绑定完成后按SQL文本顺序合并
@@ -1663,8 +1703,9 @@ class DbCore implements DbInterface
         }
         $query .= implode(',', $values);
 
-        // 按SQL文本顺序合并：SET绑定在前，WHERE绑定在后
-        $this->bindings = array_merge($this->bindings, $whereBindings);
+        // 按SQL文本顺序合并：JOIN绑定在前，SET绑定居中，WHERE绑定在后
+        $this->bindings = array_merge($this->joinBindings, $this->bindings, $whereBindings);
+        $this->joinBindings = [];
 
         // 安全守卫：无WHERE条件的UPDATE会全表更新，必须显式确认
         if (is_null($this->where)) {
@@ -2249,6 +2290,26 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 收集 JOIN ON 值形式的绑定参数并返回占位符
+     *
+     * 与 bind() 的唯一区别是收集进 $joinBindings 而非 $bindings：
+     * JOIN 绑定必须在构建时按 SQL 文本顺序（JOIN 在 WHERE/SET 之前）插入，
+     * 若在 join() 调用时直接混入 $bindings，遇到 where() 先于 join() 调用的
+     * 写法会整体错位。由 buildSelectQuery()/buildUpdateQuery() 消费。
+     *
+     * @param mixed $value 绑定值（数组/对象自动转JSON）
+     * @return string 占位符 '?'
+     */
+    protected function bindJoinValue($value)
+    {
+        if (is_array($value) || is_object($value)) {
+            $value = json_encode($value);
+        }
+        $this->joinBindings[] = $value;
+        return '?';
+    }
+
+    /**
      * 批量合并绑定参数
      *
      * @param array $values 绑定值数组
@@ -2412,6 +2473,8 @@ class DbCore implements DbInterface
         $this->groupBy = null;
         $this->having = null;
         $this->join = null;
+        $this->joinBindings = []; // JOIN 值绑定（构建时按序合并进 bindings，未消费也必须清）
+        $this->subqueryBindingsCount = 0; // joinNode 前置复制计数
         $this->grouped = false;
         $this->joinNodes = []; // 重置子节点查询配置
         $this->allowFullTable = false; // 全表操作确认仅对当次生效
@@ -2721,10 +2784,13 @@ class DbCore implements DbInterface
         $subQuery = "(SELECT " . implode(', ', $fieldList) . " FROM " . $this->from . " WHERE " . $this->where . ")";
 
         // 子查询中的占位符与主WHERE的绑定值相同，但子查询在SQL文本中位于SELECT子句（先于主WHERE出现），
-        // 因此需要将当前WHERE对应的绑定参数复制一份前置，保持占位符与绑定顺序一致
+        // 因此需要将当前WHERE对应的绑定参数复制一份前置，保持占位符与绑定顺序一致。
+        // 同时记录前置数量：JOIN 绑定在 SQL 文本中位于子查询之后、主 WHERE 之前，
+        // buildSelectQuery() 需据此把 $joinBindings 插到「子查询副本」与「主 WHERE」之间
         $wherePlaceholderCount = substr_count((string)$this->where, '?');
         $whereBindings = array_slice($this->bindings, 0, $wherePlaceholderCount);
         $this->bindings = array_merge($whereBindings, $this->bindings);
+        $this->subqueryBindingsCount = $wherePlaceholderCount;
 
         // 将子查询添加到SELECT中
         $this->select("({$subQuery}) AS {$alias}");
