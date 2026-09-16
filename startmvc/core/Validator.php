@@ -16,6 +16,13 @@ class Validator
      */
     public $fieldAutoTrim = true;
     /**
+     * 验证失败处理方式
+     * true  = 快速失败：首个字段验证失败即中止，getError() 只含该字段（默认，保持历史行为）
+     * false = 收集全部错误：逐字段继续验证，getError() 返回所有失败字段（每个字段只记录首个失败规则）
+     * @var bool
+     */
+    public $failFast = true;
+    /**
      * 验证规则
      * @var array
      */
@@ -107,6 +114,20 @@ class Validator
         $this->fieldAutoTrim = $autoTrim;
     }
     /**
+     * 设置验证失败处理方式
+     *
+     * 表单场景下通常希望一次性返回所有字段错误（前端一次点亮全部红框），
+     * 此时传 false；保持默认 true 则与旧版行为完全一致。
+     *
+     * @param bool $failFast true=快速失败（默认）；false=收集全部字段错误
+     * @return $this
+     */
+    public function setFailFast($failFast = true)
+    {
+        $this->failFast = (bool)$failFast;
+        return $this;
+    }
+    /**
      * 设置自定义函数
      * @param $tag
      * @param callable $func
@@ -130,6 +151,13 @@ class Validator
     }
     /**
      * 验证数据
+     *
+     * 失败语义由 $failFast 决定：
+     * - true（默认）：遇首个字段错误立即中止，getError() 只含该字段
+     * - false：继续验证全部字段，getError() 含所有失败字段（每字段一条）
+     *
+     * 无论哪种模式，验证失败时 _finalData 均不更新（getData()/getAllData() 返回空）。
+     *
      * @param array $data
      * @return bool
      * @throws \Exception
@@ -143,15 +171,17 @@ class Validator
         }
         $this->_ruleFailed = false;
         $result = $this->_perform($data, $this->_rules);
-        if ($this->_ruleFailed) {
+        // 快速失败：_perform 遇错已提前返回 false，无需再看错误列表
+        if ($this->_ruleFailed && $this->failFast) {
             // 验证失败时不更新 _finalData，getData()/getAllData() 返回空
             return false;
         }
-        $this->_finalData = $result;
-        if (count($this->_errorList) == 0) {
-            return true;
+        if (count($this->_errorList) > 0) {
+            // 收集模式：已记录错误同样不更新 _finalData
+            return false;
         }
-        return false;
+        $this->_finalData = is_array($result) ? $result : $data;
+        return true;
     }
     /**
      * 递归执行规则
@@ -166,18 +196,26 @@ class Validator
                 continue;
             }
             if (is_array($rule)) {
-                // 嵌套规则：内层失败时通过 _ruleFailed 向上传播并立即中止，
+                // 嵌套规则：内层失败时通过 _ruleFailed 向上传播，
                 // 避免内层返回的 false 被当作字段值写入数据
                 $sub = $this->_perform($data[$field] ?? null, $rule);
                 if ($this->_ruleFailed) {
-                    return false;
+                    if ($this->failFast) {
+                        return false;
+                    }
+                    // 收集模式：跳过该字段，继续验证后续字段
+                    continue;
                 }
                 $data[$field] = $sub;
             } else {
                 $rule = $this->_parseOneRule($rule);
                 $result = $this->_executeOneRule($data, $field, $rule['rules'], $rule['label'], $rule['msg']);
                 if ($this->_ruleFailed) {
-                    return false;
+                    if ($this->failFast) {
+                        return false;
+                    }
+                    // 收集模式：该字段已记录首个错误，跳过其余规则，继续下一个字段
+                    continue;
                 }
                 if (!is_bool($result)) {
                     $data[$field] = $result;

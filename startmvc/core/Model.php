@@ -26,10 +26,24 @@ namespace startmvc\core;
  *       'dept' => [DeptModel::class, 'dept_id', 'id'],
  *   ];
  *
+ *   protected $rules = [           // 自动验证（写入前，Validator 语法）
+ *       'username' => 'required|minlen:3|maxlen:20`用户名`',
+ *   ];
+ *   protected $auto = [            // 自动处理（写入前填充/转换）
+ *       'status' => 1,             //   标量：仅缺失时填充
+ *       'name'   => 'trim',        //   callable：强制转换
+ *       'insert' => ['reg_ip' => 'get_ip'],  // 场景限定
+ *   ];
+ *   protected $fillable = [];      // 自动过滤（字段白名单，规则字段自动并入）
+ *   protected $failFast = false;   // 验证失败处理：true=只返回首个错误（默认）
+ *                                  //   false=收集全部字段错误，getError() 一次拿全
+ *
  * 说明：
  * - 类型转换与关联装载自动应用于 find / findAll / paginate（关联批量IN查询，无N+1）
  * - 链式查询（where()->get() 等）经查询构建器代理，软删除范围同样生效，返回原始数组
  * - 软删除查询范围：withTrashed() 含已删 / onlyTrashed() 仅已删，均在链式调用前使用
+ * - 三大自动仅在 insert / update / save 生效；验证失败返回 false，
+ *   错误经 getError() 获取；不声明任何属性时行为与旧版完全一致
  */
 abstract class Model
 {
@@ -92,6 +106,46 @@ abstract class Model
 	 * @var array
 	 */
 	protected $belongsTo = [];
+
+	/**
+	 * 自动验证规则（Validator 语法），insert 与 update 共用
+	 * 非 required 字段缺失时自动跳过，天然支持局部更新
+	 * @var array
+	 */
+	protected $rules = [];
+
+	/**
+	 * 更新场景验证规则；不声明（null）时沿用 $rules
+	 * @var array|null
+	 */
+	protected $rulesUpdate = null;
+
+	/**
+	 * 验证失败处理方式
+	 * true  = 快速失败：遇首个字段错误即中止，getError() 只含该字段（默认）
+	 * false = 收集全部错误：getError() 返回所有失败字段，适合表单一次点亮全部红框
+	 * @var bool
+	 */
+	protected $failFast = true;
+
+	/**
+	 * 自动处理规则（Validator::fill 语法）：
+	 * 标量=仅缺失时填充，callable=强制转换，支持 insert/update 场景组
+	 * @var array
+	 */
+	protected $auto = [];
+
+	/**
+	 * 自动过滤：字段白名单，规则字段自动并入，无需重复声明
+	 * @var array
+	 */
+	protected $fillable = [];
+
+	/**
+	 * 最近一次写入验证（三大自动管道）的错误列表
+	 * @var array
+	 */
+	protected $validationErrors = [];
 
 	/**
 	 * 模型数据
@@ -183,6 +237,102 @@ abstract class Model
 		}
 
 		return $query->where($where);
+	}
+
+	/**
+	 * 写入前数据管道（三大自动）：自动过滤 → 自动处理 → 自动验证
+	 *
+	 * 未声明 $rules / $rulesUpdate / $auto / $fillable 时直接放行，行为与不启用时完全一致。
+	 *
+	 * @param array $data 单行数据（引用修改为处理后的数据）
+	 * @param string $scene 场景：insert / update
+	 * @return bool 验证失败返回 false，错误经 getError() 获取
+	 */
+	protected function processWriteData(array &$data, $scene)
+	{
+		$this->validationErrors = [];
+
+		if (empty($this->rules) && $this->rulesUpdate === null && empty($this->auto) && empty($this->fillable)) {
+			return true;
+		}
+
+		$rules = ($scene === 'update' && $this->rulesUpdate !== null) ? $this->rulesUpdate : $this->rules;
+
+		// 1) 自动过滤：白名单 = $fillable ∪ 规则字段
+		$fields = array_merge($this->fillable, array_keys($this->rules));
+		if ($this->rulesUpdate !== null) {
+			$fields = array_merge($fields, array_keys($this->rulesUpdate));
+		}
+		if (!empty($fields)) {
+			$data = Validator::filter($data, $fields);
+		}
+
+		// 2) 自动处理：默认值填充与强制转换
+		if (!empty($this->auto)) {
+			$data = Validator::fill($data, $this->auto, $scene);
+		}
+
+		// 3) 自动验证（失败语义由 $failFast 决定：默认快速失败，false 时收集全部字段错误）
+		if (!empty($rules)) {
+			$validator = new Validator();
+			if (!$validator->setFailFast($this->failFast)->setRules($rules)->validate($data)) {
+				$this->validationErrors = $validator->getError();
+				return false;
+			}
+			// 取回处理后的全量数据（含白名单内但未验证的字段，规则函数的回写也已生效）
+			$data = $validator->getAllData();
+		}
+
+		return true;
+	}
+
+	/**
+	 * 批量数据写入管道：单行直接过管道，批量（首元素为数组）逐行处理，任一行失败整体失败
+	 *
+	 * @param array $data 数据（引用修改）
+	 * @param string $scene 场景：insert / update
+	 * @return bool
+	 */
+	protected function processWriteBatch(array &$data, $scene)
+	{
+		if (empty($this->rules) && $this->rulesUpdate === null && empty($this->auto) && empty($this->fillable)) {
+			return true;
+		}
+
+		$values = array_values($data);
+		if (isset($values[0]) && is_array($values[0])) {
+			foreach ($data as &$row) {
+				if (!$this->processWriteData($row, $scene)) {
+					return false;
+				}
+			}
+			unset($row);
+		} else {
+			if (!$this->processWriteData($data, $scene)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * 获取最近一次写入验证的错误列表（三大自动管道）
+	 * @return array [字段 => 错误消息]
+	 */
+	public function getError()
+	{
+		return $this->validationErrors;
+	}
+
+	/**
+	 * 获取字符形式的写入验证错误
+	 * @param string $newline 分隔符
+	 * @return string
+	 */
+	public function getErrorString($newline = "\n")
+	{
+		return implode($newline, $this->validationErrors);
 	}
 
 	/**
@@ -379,15 +529,19 @@ abstract class Model
 	}
 
 	/**
-	 * 插入数据（自动补充创建/更新时间戳）
+	 * 插入数据（三大自动管道 + 自动补充创建/更新时间戳）
 	 *
 	 * @param array $data 数据
-	 * @return int|bool 插入ID或结果
+	 * @return int|bool 插入ID或结果；管道验证失败返回 false（getError() 取错误）
 	 */
 	public function insert($data = [])
 	{
 		if (!empty($data)) {
 			$this->data = $data;
+		}
+
+		if (!$this->processWriteBatch($this->data, 'insert')) {
+			return false;
 		}
 
 		if ($this->timestamps) {
@@ -407,17 +561,22 @@ abstract class Model
 	}
 
 	/**
-	 * 更新数据（自动补充更新时间戳，软删除启用时已删记录不可更新）
+	 * 更新数据（三大自动管道 + 自动补充更新时间戳，软删除启用时已删记录不可更新）
 	 *
 	 * @param array $data 要更新的数据
 	 * @param mixed $where 条件(数组、字符串或整数id)
-	 * @return int|bool 影响行数或结果
+	 * @return int|bool 影响行数或结果；管道验证失败返回 false（getError() 取错误）
 	 */
 	public function update($data, $where = [])
 	{
 		if (!empty($data)) {
 			$this->data = $data;
 		}
+
+		if (!$this->processWriteBatch($this->data, 'update')) {
+			return false;
+		}
+
 		$this->applyTimestamps($this->data, false);
 
 		$query = $this->newQuery();
@@ -457,13 +616,23 @@ abstract class Model
 	/**
 	 * 删除数据（软删除启用时改写为更新删除标记）
 	 *
+	 * 软删除属框架内部写操作，直连查询构建器以绕过三大自动管道，
+	 * 避免 deleteTime / updateTime 被字段白名单剔除。
+	 *
 	 * @param mixed $where 条件(数组、字符串或整数id)
 	 * @return int|bool 影响行数或结果
 	 */
 	public function delete($where = null)
 	{
 		if ($this->softDelete) {
-			return $this->update([$this->deleteTime => date('Y-m-d H:i:s')], $where);
+			$data = [$this->deleteTime => date('Y-m-d H:i:s')];
+			if ($this->timestamps && $this->updateTime !== null) {
+				$data[$this->updateTime] = date('Y-m-d H:i:s');
+			}
+
+			$query = $this->newQuery();
+			$this->applyWhere($query, $where);
+			return $query->update($data);
 		}
 		return $this->forceDelete($where);
 	}
