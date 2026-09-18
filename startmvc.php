@@ -8,6 +8,7 @@
  *   php startmvc.php make:controller home/Article   生成控制器骨架
  *   php startmvc.php make:model home/Article        生成模型骨架
  *   php startmvc.php cache:clear                    清理路由与模板编译缓存
+ *   php startmvc.php log:clear --keep-days=30       清理历史日志（保留最近 30 天）
  *
  * 说明：Web 请求请走 public/index.php，本文件仅用于命令行。
  */

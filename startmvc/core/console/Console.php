@@ -11,6 +11,7 @@
 namespace startmvc\core\console;
 
 use startmvc\core\console\commands\CacheClear;
+use startmvc\core\console\commands\LogClear;
 use startmvc\core\console\commands\MakeController;
 use startmvc\core\console\commands\MakeModel;
 use startmvc\core\console\commands\RouteList;
@@ -94,6 +95,7 @@ class Console
         $this->register('make:controller', MakeController::class);
         $this->register('make:model', MakeModel::class);
         $this->register('cache:clear', CacheClear::class);
+        $this->register('log:clear', LogClear::class);
         return $this;
     }
 
