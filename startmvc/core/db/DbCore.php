@@ -1377,6 +1377,101 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 分块遍历（按主键推进）
+     *
+     * 给「导出报表」「批量修数据」这类不能把全表读进内存的场景用：
+     * 每批只取 $count 行交给回调，处理完即丢弃，内存占用与批大小成正比、与总行数无关。
+     *
+     * 为什么按主键推进、而不是 limit/offset：
+     *   offset 分页在遍历途中一旦发生增删就会错位——已处理的行被删掉后，
+     *   后续批次的 OFFSET 会跳过尚未访问的行，而且不报错。
+     *   改用「WHERE 主键 > 上批末行的值」推进，增删都不影响正确性；
+     *   同时避开大 OFFSET 需要先扫描前 N 行的性能问题。
+     *
+     * 用法：
+     *   Db::table('users')->where('status', 1)->chunk(1000, function ($rows) {
+     *       foreach ($rows as $row) { ... }
+     *       // 返回 false 可提前结束遍历
+     *   });
+     *
+     * 约定（改动前先读）：
+     *   1. 推进顺序固定为主键升序，会覆盖调用前设置的 order；
+     *   2. 调用前设置的 where 条件会保留，并作用于每一批；
+     *   3. 内部查询跑在克隆实例上，原实例（即调用方持有的共享构建器）的构建状态
+     *      由本方法在结束时统一重置，语义与 get()/first() 一致 —— 因此 chunk 之后
+     *      不会有 where 残留污染后续同表查询；
+     *   4. 回调抛出的异常直接向上抛，遍历中断，已处理的数据不回滚（构建状态同样会重置）。
+     *
+     * @param int $count 每批行数
+     * @param callable $callback 接收一批数据（二维关联数组），返回 false 提前结束
+     * @param string|null $column 推进用的主键列，默认 id
+     * @return int 实际交给回调的总行数
+     * @throws \InvalidArgumentException 每批行数小于 1 时
+     * @throws \RuntimeException 结果里取不到推进列时（列名写错或被别名覆盖，继续会死循环）
+     */
+    public function chunk($count, callable $callback, $column = null)
+    {
+        $count = (int)$count;
+        if ($count < 1) {
+            throw new \InvalidArgumentException('chunk() 的每批行数必须大于 0');
+        }
+
+        $column = $column ?: 'id';
+
+        // 先建连接再克隆：clone 是浅拷贝，能共享同一个 PDO 对象；
+        // 若在未连接状态下克隆，每个副本都会各自 connect()，连接数会随批次数膨胀
+        $this->connect();
+        $template = clone $this;
+
+        $lastValue = null;
+        $processed = 0;
+
+        try {
+            while (true) {
+                $query = clone $template;
+
+                if ($lastValue !== null) {
+                    $query->where($column, '>', $lastValue);
+                }
+
+                // order/limit/offset 都是覆盖式设置：保证推进顺序可控，
+                // 并清掉调用方可能残留的偏移量
+                $rows = $query->order($column, 'ASC')->limit($count)->offset(0)->get();
+
+                if (empty($rows)) {
+                    break;
+                }
+
+                $processed += count($rows);
+
+                $lastRow = end($rows);
+                $lastValue = isset($lastRow[$column]) ? $lastRow[$column] : null;
+
+                if ($lastValue === null) {
+                    throw new \RuntimeException("chunk() 无法从结果中取得推进列 [{$column}]，请检查列名是否正确");
+                }
+
+                if (call_user_func($callback, $rows) === false) {
+                    break;
+                }
+
+                // 不足一批说明已经取完，省掉一次空查询
+                if (count($rows) < $count) {
+                    break;
+                }
+            }
+        } finally {
+            // 查询都在克隆实例上执行，原实例的 reset() 不会被触发，
+            // 必须在这里手动重置：否则调用前设置的 where 会残留在共享构建器上，
+            // 让后续同表查询静默带上旧条件（比报错更难查）。
+            // 放 finally 里保证回调抛异常时也不留脏状态。
+            $this->reset();
+        }
+
+        return $processed;
+    }
+
+    /**
      * 获取单条记录
      * 
      * @param bool|string $returnSql 是否仅返回SQL或返回类型
