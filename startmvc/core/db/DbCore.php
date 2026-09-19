@@ -1900,54 +1900,141 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 开始事务
+     * 开启事务 / 闭包式原子执行
      *
-     * @return bool
+     * 两种用法：
+     *   1. 无参 → 开启事务，返回 bool（支持嵌套，内层用 SAVEPOINT）
+     *   2. 传闭包 → 包裹执行，闭包正常返回则提交、抛异常则自动回滚并透传异常，
+     *      返回闭包的返回值。示例：
+     *        $id = Db::transaction(function ($db) {
+     *            $db->table('orders')->insert([...]);
+     *            return $db->insertId();
+     *        });
+     *
+     * 计数器语义（改动前务必先读）：
+     *   transactionCount 必须始终 >= 0，且只在事务真正开启后才递增。
+     *   一旦它变成负数，`transaction()` 里判断「是否最外层」的条件就会失真，
+     *   导致 beginTransaction 被静默跳过——事务整体失效且不报错。
+     *   所以：commit()/rollBack() 入口先挡负数；beginTransaction() 成功后才赋值计数。
+     *
+     * @param callable|null $callback 闭包，接收当前 DbCore 实例作为参数
+     * @return bool|mixed 无参时返回 bool；传闭包时返回闭包的返回值
+     * @throws \InvalidArgumentException 参数既不是 null 也不是可调用对象时
      */
-    public function transaction()
+    public function transaction($callback = null)
     {
         // 确保连接已建立（延迟连接设计下pdo可能为null）
         $this->connect();
 
-        if (!$this->transactionCount++) {
-            return $this->pdo->beginTransaction();
+        if ($callback !== null) {
+            if (!is_callable($callback)) {
+                throw new \InvalidArgumentException('transaction() 的参数必须是可调用的闭包');
+            }
+            return $this->runInTransaction($callback);
         }
 
-        $this->pdo->exec('SAVEPOINT trans' . $this->transactionCount);
-        return $this->transactionCount >= 0;
+        // 嵌套：只建保存点，不动计数器以外的东西
+        if ($this->transactionCount > 0) {
+            $this->pdo->exec('SAVEPOINT trans' . ($this->transactionCount + 1));
+            $this->transactionCount++;
+            return true;
+        }
+
+        // 最外层：真正开启事务。beginTransaction 失败会抛异常，
+        // 此时计数器保持 0，不留下「计数说有事务、实际没有」的错位状态
+        $this->pdo->beginTransaction();
+        $this->transactionCount = 1;
+        return true;
     }
 
     /**
      * 提交事务
      *
-     * @return bool
+     * 嵌套层提交只释放本层保存点，最外层才真正 commit。
+     *
+     * @return bool 没有活动事务时返回 false（不抛异常、不污染计数器）
      */
     public function commit()
     {
+        if ($this->transactionCount <= 0) {
+            return false;
+        }
+
         $this->connect();
 
-        if (!--$this->transactionCount) {
+        if ($this->transactionCount === 1) {
+            $this->transactionCount = 0;
             return $this->pdo->commit();
         }
 
-        return $this->transactionCount >= 0;
+        // 先释放保存点再递减，保证 RELEASE 的目标就是本层建的 savepoint
+        $this->pdo->exec('RELEASE SAVEPOINT trans' . $this->transactionCount);
+        $this->transactionCount--;
+        return true;
     }
 
     /**
      * 回滚事务
      *
-     * @return bool
+     * 嵌套层回滚到本层保存点（不释放，由外层决定去留），最外层才真正 rollBack。
+     *
+     * @return bool 没有活动事务时返回 false（不抛异常、不污染计数器）
      */
     public function rollBack()
     {
-        $this->connect();
-
-        if (--$this->transactionCount) {
-            $this->pdo->exec('ROLLBACK TO trans' . ($this->transactionCount + 1));
-            return true;
+        if ($this->transactionCount <= 0) {
+            return false;
         }
 
-        return $this->pdo->rollBack();
+        $this->connect();
+
+        if ($this->transactionCount === 1) {
+            $this->transactionCount = 0;
+            return $this->pdo->rollBack();
+        }
+
+        $this->pdo->exec('ROLLBACK TO trans' . $this->transactionCount);
+        $this->transactionCount--;
+        return true;
+    }
+
+    /**
+     * 闭包式事务的实际执行体
+     *
+     * 注意回滚本身也可能失败（连接已断、savepoint 丢失）。那种情况下
+     * 不能让它盖掉业务异常——原始异常才是调用方需要看到的，
+     * 回滚失败只记入 $error 供排查。
+     *
+     * @param callable $callback
+     * @return mixed 闭包的返回值
+     * @throws \Throwable 原样透传闭包抛出的异常
+     */
+    protected function runInTransaction($callback)
+    {
+        $this->transaction();
+
+        try {
+            $result = call_user_func($callback, $this);
+            $this->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            try {
+                $this->rollBack();
+            } catch (\Throwable $rollbackError) {
+                $this->error = '事务回滚失败: ' . $rollbackError->getMessage();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * 当前是否处于事务中
+     *
+     * @return bool
+     */
+    public function inTransaction()
+    {
+        return $this->transactionCount > 0;
     }
 
     /**
