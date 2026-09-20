@@ -11,7 +11,8 @@
 //分页配置
 return [
     'theme' => '%header% %first% %prev% %link% %next% %last%',//分页样式
-    'header' => '总共 %count% 页 %page% / %pageCount%',//分页头部
+    //分页头部：%count% = 记录总数，%page% = 当前页，%pageCount% = 总页数
+    'header' => '共 %count% 条记录 第 %page% / %pageCount% 页',
     'first' => '首页',//首页
     'last' => '末页',//末页
     'prev' => '上一页',//上一页
