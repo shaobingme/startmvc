@@ -37,6 +37,16 @@ namespace startmvc\core;
  *   protected $fillable = [];      // 自动过滤（字段白名单，规则字段自动并入）
  *   protected $failFast = false;   // 验证失败处理：true=只返回首个错误（默认）
  *                                  //   false=收集全部字段错误，getError() 一次拿全
+ *   protected $auditBefore = true; // 写入事件附带旧记录：update/delete 前多查一次
+ *
+ * 写入事件（Event::listen 注册；监听器声明 `function (&$payload)` 可改写数据，
+ * 返回 false 可否决本次写入）：
+ *   model.before_insert / model.after_insert
+ *   model.before_update / model.after_update
+ *   model.before_delete / model.after_delete
+ * payload 键：model(模型类) table action data where before result
+ * - before 仅在 $auditBefore = true 时非空，且**必须在写入前查出**，否则拿不到旧值
+ * - 未注册任何监听器时零开销、行为与旧版完全一致
  *
  * 说明：
  * - 类型转换与关联装载自动应用于 find / findAll / paginate（关联批量IN查询，无N+1）
@@ -44,6 +54,9 @@ namespace startmvc\core;
  * - 软删除查询范围：withTrashed() 含已删 / onlyTrashed() 仅已删，均在链式调用前使用
  * - 三大自动仅在 insert / update / save 生效；验证失败返回 false，
  *   错误经 getError() 获取；不声明任何属性时行为与旧版完全一致
+ * - 写入事件覆盖软删除分支（delete() 走直连查询构建器那条路径）与 forceDelete()
+ * - save() 按主键自动路由到 insert()/update()，因此只会触发其中一组事件
+ * - restore() 不触发写入事件（它绕过软删除范围的语义特殊，需要请用链式查询 + 事件）
  */
 abstract class Model
 {
@@ -140,6 +153,13 @@ abstract class Model
 	 * @var array
 	 */
 	protected $fillable = [];
+
+	/**
+	 * 写入事件开关：开启后 update / delete 会先查出被影响的旧记录，
+	 * 作为 payload['before'] 传给后置事件（代价：每次写入多一次 SELECT）
+	 * @var bool
+	 */
+	protected $auditBefore = false;
 
 	/**
 	 * 最近一次写入验证（三大自动管道）的错误列表
@@ -529,6 +549,84 @@ abstract class Model
 	}
 
 	/**
+	 * 触发写入前置事件（model.before_insert / model.before_update / model.before_delete）
+	 *
+	 * 监听器声明 `function (&$payload)` 即可改写 $payload['data']（待写入数据），
+	 * 返回 false 表示否决本次写入，调用方中止并返回 false。
+	 * 未注册监听器时不做任何事，行为与旧版完全一致。
+	 *
+	 * @param string $action 动作：insert / update / delete
+	 * @param array $payload 事件载荷（引用，监听器可改写）
+	 * @return bool false 表示被否决
+	 */
+	protected function fireBeforeEvent($action, array &$payload)
+	{
+		$payload['model'] = static::class;
+		$payload['table'] = $this->table;
+		$payload['action'] = $action;
+
+		$responses = Event::fireRef('model.before_' . $action, $payload);
+
+		return !in_array(false, $responses, true);
+	}
+
+	/**
+	 * 触发写入后置事件（model.after_insert / model.after_update / model.after_delete）
+	 *
+	 * 监听器收到的 $payload 含 model / table / action / data / result，
+	 * 模型声明 $auditBefore = true 时另有 before（写入前的旧记录）。
+	 * 后置事件不支持否决，返回值被忽略。
+	 *
+	 * @param string $action 动作：insert / update / delete
+	 * @param array $payload 事件载荷
+	 * @return void
+	 */
+	protected function fireAfterEvent($action, array $payload)
+	{
+		$payload['model'] = static::class;
+		$payload['table'] = $this->table;
+		$payload['action'] = $action;
+
+		Event::fireRef('model.after_' . $action, $payload);
+	}
+
+	/**
+	 * 查询写入前的旧记录（仅在 $auditBefore 开启时真正查库）
+	 *
+	 * 结果应用 $casts 类型转换（与 find() 的字段类型保持一致，便于前后对比），
+	 * 但不装载关联，避免为审计多付出 N 次查询。
+	 *
+	 * @param mixed $where 查询条件
+	 * @param bool $ignoreSoftDelete 是否忽略软删除范围（forceDelete 用）
+	 * @return array 旧记录集合（可能多行，未匹配到则为空数组）
+	 */
+	protected function loadBeforeRows($where, $ignoreSoftDelete = false)
+	{
+		if (!$this->auditBefore) {
+			return [];
+		}
+
+		$query = $ignoreSoftDelete ? Db::table($this->table) : $this->newQuery();
+		$this->applyWhere($query, $where);
+
+		$rows = $query->get();
+		if (!is_array($rows)) {
+			return [];
+		}
+
+		if (!empty($this->casts)) {
+			foreach ($rows as &$row) {
+				if (is_array($row)) {
+					$row = $this->castRow($row);
+				}
+			}
+			unset($row);
+		}
+
+		return $rows;
+	}
+
+	/**
 	 * 插入数据（三大自动管道 + 自动补充创建/更新时间戳）
 	 *
 	 * @param array $data 数据
@@ -557,15 +655,47 @@ abstract class Model
 			}
 		}
 
-		return Db::table($this->table)->insert($this->data);
+		// 前置事件：批量时逐行触发（与三大自动管道的行粒度一致），任一行被否决则整体中止
+		$values = array_values($this->data);
+		if (isset($values[0]) && is_array($values[0])) {
+			foreach ($this->data as &$row) {
+				$event = ['data' => $row, 'before' => []];
+				if (!$this->fireBeforeEvent('insert', $event)) {
+					unset($row);
+					return false;
+				}
+				$row = $event['data'];
+			}
+			unset($row);
+		} else {
+			$event = ['data' => $this->data, 'before' => []];
+			if (!$this->fireBeforeEvent('insert', $event)) {
+				return false;
+			}
+			$this->data = $event['data'];
+		}
+
+		$result = Db::table($this->table)->insert($this->data);
+
+		// 后置事件：批量插入只有首个自增ID，result 语义为 insertId
+		$this->fireAfterEvent('insert', [
+			'data'   => $this->data,
+			'before' => [],
+			'result' => $result,
+		]);
+
+		return $result;
 	}
 
 	/**
 	 * 更新数据（三大自动管道 + 自动补充更新时间戳，软删除启用时已删记录不可更新）
 	 *
+	 * 触发 model.before_update（可改写 data / 返回 false 否决）与 model.after_update；
+	 * 模型声明 $auditBefore = true 时，payload['before'] 为写入前的旧记录。
+	 *
 	 * @param array $data 要更新的数据
 	 * @param mixed $where 条件(数组、字符串或整数id)
-	 * @return int|bool 影响行数或结果；管道验证失败返回 false（getError() 取错误）
+	 * @return int|bool 影响行数或结果；管道验证失败或被事件否决返回 false（getError() 取错误）
 	 */
 	public function update($data, $where = [])
 	{
@@ -579,10 +709,27 @@ abstract class Model
 
 		$this->applyTimestamps($this->data, false);
 
+		// 旧记录必须在写入前查（$auditBefore 未开启时返回空数组，不产生查询）
+		$before = $this->loadBeforeRows($where);
+
+		$event = ['data' => $this->data, 'where' => $where, 'before' => $before];
+		if (!$this->fireBeforeEvent('update', $event)) {
+			return false;
+		}
+		$this->data = $event['data'];
+
 		$query = $this->newQuery();
 		$this->applyWhere($query, $where);
+		$result = $query->update($this->data);
 
-		return $query->update($this->data);
+		$this->fireAfterEvent('update', [
+			'data'   => $this->data,
+			'where'  => $where,
+			'before' => $before,
+			'result' => $result,
+		]);
+
+		return $result;
 	}
 
 	/**
@@ -619,8 +766,11 @@ abstract class Model
 	 * 软删除属框架内部写操作，直连查询构建器以绕过三大自动管道，
 	 * 避免 deleteTime / updateTime 被字段白名单剔除。
 	 *
+	 * 两条分支（软删除改写 / 真删除）都会触发 model.before_delete 与 model.after_delete，
+	 * 且 model.before_delete 改写 $payload['data'] 在软删除分支同样生效。
+	 *
 	 * @param mixed $where 条件(数组、字符串或整数id)
-	 * @return int|bool 影响行数或结果
+	 * @return int|bool 影响行数或结果；被事件否决返回 false
 	 */
 	public function delete($where = null)
 	{
@@ -630,9 +780,26 @@ abstract class Model
 				$data[$this->updateTime] = date('Y-m-d H:i:s');
 			}
 
+			$before = $this->loadBeforeRows($where);
+
+			$event = ['data' => $data, 'where' => $where, 'before' => $before];
+			if (!$this->fireBeforeEvent('delete', $event)) {
+				return false;
+			}
+			$data = $event['data'];
+
 			$query = $this->newQuery();
 			$this->applyWhere($query, $where);
-			return $query->update($data);
+			$result = $query->update($data);
+
+			$this->fireAfterEvent('delete', [
+				'data'   => $data,
+				'where'  => $where,
+				'before' => $before,
+				'result' => $result,
+			]);
+
+			return $result;
 		}
 		return $this->forceDelete($where);
 	}
@@ -640,14 +807,33 @@ abstract class Model
 	/**
 	 * 真实删除（绕过软删除）
 	 *
+	 * 同样触发 model.before_delete / model.after_delete；
+	 * 旧记录查询忽略软删除范围（真删除可以删掉已软删的行）。
+	 *
 	 * @param mixed $where 条件(数组、字符串或整数id)
-	 * @return int|bool 影响行数或结果
+	 * @return int|bool 影响行数或结果；被事件否决返回 false
 	 */
 	public function forceDelete($where = null)
 	{
+		$before = $this->loadBeforeRows($where, true);
+
+		$event = ['data' => [], 'where' => $where, 'before' => $before];
+		if (!$this->fireBeforeEvent('delete', $event)) {
+			return false;
+		}
+
 		$query = Db::table($this->table);
 		$this->applyWhere($query, $where);
-		return $query->delete();
+		$result = $query->delete();
+
+		$this->fireAfterEvent('delete', [
+			'data'   => [],
+			'where'  => $where,
+			'before' => $before,
+			'result' => $result,
+		]);
+
+		return $result;
 	}
 
 	/**
