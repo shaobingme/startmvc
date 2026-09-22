@@ -21,6 +21,9 @@ class App
 	{
 		// 注册默认中间件
 		$this->registerMiddleware();
+
+		// 接线：数据表写入后自动失效对应标签的缓存（未配置映射时不注册，零开销）
+		$this->registerAutoFlushTag();
 	}
 	public function run()
 	{
@@ -149,6 +152,36 @@ class App
 		foreach ($global as $middlewareClass) {
 			Middleware::register($middlewareClass);
 		}
+	}
+
+	/**
+	 * 接线：数据表写入后自动失效对应标签的缓存
+	 *
+	 * 映射来自 config/cache.php 的 autoFlushTag（逻辑表名 => 标签）。
+	 * 默认未配置映射，此时不注册监听器，写库路径不产生任何额外开销。
+	 * 监听器内部若再次写库，DbCore 的重入保护会跳过二次广播，不会递归。
+	 *
+	 * @return void
+	 */
+	protected function registerAutoFlushTag()
+	{
+		$cacheConfig = Config::load('cache');
+		$map = is_array($cacheConfig) ? ($cacheConfig['autoFlushTag'] ?? []) : [];
+
+		if (empty($map) || !is_array($map)) {
+			return;
+		}
+
+		Event::listen('db.changed', function ($payload) use ($map) {
+			$table = $payload['table'] ?? '';
+			if ($table === '' || !isset($map[$table])) {
+				return;
+			}
+
+			// 值写 true 表示直接以表名作为标签
+			$tags = $map[$table] === true ? [$table] : $map[$table];
+			Cache::store()->flushTag($tags);
+		});
 	}
 
 	/**

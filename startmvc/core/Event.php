@@ -8,6 +8,12 @@ class Event
      * @var array
      */
     protected static $listeners = [];
+
+    /**
+     * 静默深度：>0 时 fire() / fireRef() 不派发任何监听器
+     * @var int
+     */
+    protected static $muteDepth = 0;
     
     /**
      * 注册事件监听器
@@ -42,7 +48,11 @@ class Event
     public static function fire($event, $payload = null)
     {
         $responses = [];
-        
+
+        if (self::$muteDepth > 0) {
+            return $responses;
+        }
+
         if (isset(self::$listeners[$event])) {
             foreach (self::$listeners[$event] as $priority => $callback) {
                 $responses[] = call_user_func($callback, $payload);
@@ -72,6 +82,10 @@ class Event
     {
         $responses = [];
 
+        if (self::$muteDepth > 0) {
+            return $responses;
+        }
+
         if (isset(self::$listeners[$event])) {
             foreach (self::$listeners[$event] as $priority => $callback) {
                 $responses[] = call_user_func_array($callback, [&$payload]);
@@ -79,6 +93,52 @@ class Event
         }
 
         return $responses;
+    }
+
+    /**
+     * 在回调期间静默所有事件派发
+     *
+     * 用于批量导入、数据迁移、Seeder 等场景——不希望为每一条记录触发
+     * 审计日志 / 缓存失效 / 消息推送。回调结束后自动恢复，支持嵌套。
+     *
+     * 注意：静默的是"派发"而不是"注册"——回调里 Event::listen() 照常生效，
+     * 只是静默期间不会被触发。fire() 与 fireRef() 都会静默。
+     *
+     * @param callable $callback 回调
+     * @return mixed 回调的返回值
+     */
+    public static function mute(callable $callback)
+    {
+        self::$muteDepth++;
+
+        try {
+            return $callback();
+        } finally {
+            self::$muteDepth--;
+        }
+    }
+
+    /**
+     * 当前是否处于静默状态
+     * @return bool
+     */
+    public static function isMuted()
+    {
+        return self::$muteDepth > 0;
+    }
+
+    /**
+     * 指定事件是否注册了监听器
+     *
+     * 供热点路径提前短路：例如 DbCore 只在确实有人监听 db.changed 时，
+     * 才去解析表名并做派发准备。
+     *
+     * @param string $event 事件名称
+     * @return bool
+     */
+    public static function hasListeners($event)
+    {
+        return !empty(self::$listeners[$event]);
     }
 
     /**

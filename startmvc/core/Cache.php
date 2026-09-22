@@ -13,6 +13,20 @@ use startmvc\core\Config;
 
 class Cache {
 	/**
+	 * 标签版本号在缓存中的键前缀（框架保留前缀，业务键请避开）
+	 */
+	const TAG_PREFIX = '__sm_tag_version:';
+
+	/**
+	 * 标签版本号自身的保留期（秒）
+	 *
+	 * 必须远大于标签化缓存条目的 TTL，否则版本号会先于数据过期，
+	 * 版本回落到 0 会让 flush 之前的旧缓存"复活"。
+	 * 取 30 天是因为 Memcached 会把大于 2592000 的过期时间当作绝对时间戳解释。
+	 */
+	const TAG_VERSION_TTL = 2592000;
+
+	/**
 	 * 已创建的驱动实例池（按驱动名复用，避免 Redis/Memcached 重复建连）
 	 * @var array
 	 */
@@ -23,6 +37,12 @@ class Cache {
 	 * @var object
 	 */
 	private $drive;
+
+	/**
+	 * 当前实例关联的标签（由 tag() 产生的副本持有，共享实例上恒为空）
+	 * @var array
+	 */
+	private $tags = [];
 
 	/**
 	 * 构造函数，初始化缓存驱动
@@ -52,7 +72,7 @@ class Cache {
 	 * @return bool 是否写入成功
 	 */
 	public function set(string $key, $val, $ttl = null) {
-		return (bool)$this->drive->set($key, $val, $ttl);
+		return (bool)$this->drive->set($this->taggedKey($key), $val, $ttl);
 	}
 
 	/**
@@ -67,6 +87,10 @@ class Cache {
 	 * @return mixed 缓存值或回调返回值
 	 */
 	public function remember(string $key, callable $callback, $ttl = null) {
+		// 只在此处解析一次标签版本，后续直接操作存储键，
+		// 避免再次经过 taggedKey() 造成重复标记
+		$key = $this->taggedKey($key);
+
 		$value = $this->drive->get($key);
 		if ($value !== null) {
 			return $value;
@@ -84,7 +108,7 @@ class Cache {
 	 * @return bool
 	 */
 	public function has(string $key) {
-		return $this->drive->has($key);
+		return $this->drive->has($this->taggedKey($key));
 	}
 	
 	/**
@@ -93,7 +117,7 @@ class Cache {
 	 * @return mixed
 	 */
 	public function get(string $key) {
-		return $this->drive->get($key);
+		return $this->drive->get($this->taggedKey($key));
 	}
 	
 	/**
@@ -102,7 +126,81 @@ class Cache {
 	 * @return bool 是否删除成功（键不存在时返回false）
 	 */
 	public function delete(string $key) {
-		return (bool)$this->drive->delete($key);
+		return (bool)$this->drive->delete($this->taggedKey($key));
+	}
+
+	/**
+	 * 创建带标签的缓存作用域
+	 *
+	 * 返回的是一个浅拷贝，因此不会污染 Cache::store() 共享实例的标签状态。
+	 * 标签化条目的实际存储键会内嵌各标签的当前版本号，
+	 * flushTag() 只需递增版本号，就能让该标签下的全部条目一次性失效。
+	 *
+	 * @param string|array $name 单个标签或标签数组
+	 * @return Cache 带标签的缓存实例
+	 */
+	public function tag($name) {
+		$clone = clone $this;
+		$clone->tags = array_values(array_unique(array_filter(
+			array_merge($this->tags, (array)$name),
+			'strlen'
+		)));
+		return $clone;
+	}
+
+	/**
+	 * 使指定标签下的所有缓存立即失效
+	 *
+	 * 实现方式是递增标签版本号（单次写，无读改写竞态），
+	 * 而非逐个删除条目——后者要维护标签索引，并发写入时存在漏删风险。
+	 *
+	 * 代价：旧版本号对应的条目不再被访问，只能等自身 TTL 到期后由驱动惰性回收；
+	 * File 驱动没有主动 GC，因此标签化缓存应设置较短的 TTL，
+	 * 并在低峰期用 clear() 回收残留文件。
+	 *
+	 * @param string|array $name 单个标签或标签数组
+	 * @return $this
+	 */
+	public function flushTag($name) {
+		foreach ((array)$name as $tag) {
+			$tag = (string)$tag;
+			if ($tag === '') {
+				continue;
+			}
+			$this->drive->set(self::TAG_PREFIX . $tag, $this->tagVersion($tag) + 1, self::TAG_VERSION_TTL);
+		}
+		return $this;
+	}
+
+	/**
+	 * 读取标签的当前版本号
+	 * @param string $tag 标签名
+	 * @return int 版本号，从未被 flush 过时为 0
+	 */
+	private function tagVersion($tag) {
+		$version = $this->drive->get(self::TAG_PREFIX . $tag);
+		return is_numeric($version) ? (int)$version : 0;
+	}
+
+	/**
+	 * 把标签版本号编进存储键
+	 *
+	 * 未打标签时原样返回，保证不带标签的用法与旧版本行为完全一致。
+	 *
+	 * @param string $key 业务键名
+	 * @return string 实际存储键
+	 */
+	private function taggedKey(string $key) {
+		if (empty($this->tags)) {
+			return $key;
+		}
+
+		$parts = [];
+		foreach ($this->tags as $tag) {
+			$parts[] = $tag . ':' . $this->tagVersion($tag);
+		}
+
+		return $key . '|@' . implode(',', $parts);
 	}
 	
 	/**

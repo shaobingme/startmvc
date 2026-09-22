@@ -8,6 +8,7 @@ use PDOException;
 use startmvc\core\Exception;
 use startmvc\core\Config;
 use startmvc\core\Logger;
+use startmvc\core\Event;
 use startmvc\core\db\DbCache;
 
 /**
@@ -138,7 +139,23 @@ class DbCore implements DbInterface
      * @var DbCore[]
      */
     protected static $instances = [];
-    
+
+    /**
+     * db.changed 广播的重入深度
+     *
+     * 监听器内部再次写库（例如写审计表）会重新走到 dispatchChanged()，
+     * 此时深度已大于 0，直接跳过广播，从而避免无限递归。
+     * 一次顶层写入只广播一次，嵌套写入对监听器不可见。
+     * @var int
+     */
+    protected static $eventDepth = 0;
+
+    /**
+     * 是否静默数据变更事件（withoutEvents() 作用域内为 true）
+     * @var bool
+     */
+    protected static $eventsDisabled = false;
+
     /**
      * 是否已连接
      * @var bool
@@ -1640,6 +1657,9 @@ class DbCore implements DbInterface
     {
         $query = $this->buildInsertQuery($data, $type);
 
+        // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
+        $table = $this->rawTableName();
+
         // 存储插入数据和查询（插值后的可读SQL），用于getSql方法
         $this->_insertData = $data;
         $this->_lastQuery = $this->interpolateQuery($query);
@@ -1652,8 +1672,10 @@ class DbCore implements DbInterface
             return $displaySql;
         }
 
-        if ($this->query($query, false) !== false) {
+        $affected = $this->query($query, false);
+        if ($affected !== false) {
             $this->insertId = $this->pdo->lastInsertId();
+            $this->dispatchChanged($table, 'insert', (int)$affected);
             return $this->insertId();
         }
 
@@ -1753,6 +1775,9 @@ class DbCore implements DbInterface
     {
         $query = $this->buildUpdateQuery($data);
 
+        // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
+        $table = $this->rawTableName();
+
         // 存储更新数据和查询（插值后的可读SQL），用于getSql方法
         $this->_updateData = $data;
         $this->_lastQuery = $this->interpolateQuery($query);
@@ -1765,7 +1790,15 @@ class DbCore implements DbInterface
             return $displaySql;
         }
 
-        return $this->query($query, false);
+        $affected = $this->query($query, false);
+
+        // 仅在实际改变行数 > 0 时广播：rowCount 为 0 表示无匹配行或新值与旧值相同，
+        // 数据未发生变化，缓存仍然有效（原生预处理下 rowCount 是"实际改变"而非"匹配"）
+        if ($affected !== false && $affected > 0) {
+            $this->dispatchChanged($table, 'update', (int)$affected);
+        }
+
+        return $affected;
     }
 
     /**
@@ -1833,6 +1866,9 @@ class DbCore implements DbInterface
     {
         $query = $this->buildDeleteQuery();
 
+        // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
+        $table = $this->rawTableName();
+
         // 存储查询（插值后的可读SQL），用于getSql方法
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'delete';
@@ -1844,7 +1880,14 @@ class DbCore implements DbInterface
             return $displaySql;
         }
 
-        return $this->query($query, false);
+        $affected = $this->query($query, false);
+
+        // 同 update()：无行被删除说明数据未变，不广播
+        if ($affected !== false && $affected > 0) {
+            $this->dispatchChanged($table, 'delete', (int)$affected);
+        }
+
+        return $affected;
     }
 
     /**
@@ -1904,6 +1947,90 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 在静默数据变更事件的作用域内执行回调
+     *
+     * 作用域内所有 insert/update/delete/truncate/drop/inc/dec 都不会广播 db.changed。
+     * 用于批量导入、数据迁移、定时同步，以及监听器内部的维护性写入。
+     *
+     * 注意：只屏蔽 db.changed，模型层的 model.* 事件不受影响；
+     * 如需全局屏蔽所有事件，请使用 Event::mute()。
+     *
+     * @param callable $callback 作用域内执行的逻辑
+     * @return mixed 回调的返回值
+     */
+    public static function withoutEvents(callable $callback)
+    {
+        $previous = self::$eventsDisabled;
+        self::$eventsDisabled = true;
+        try {
+            return $callback();
+        } finally {
+            self::$eventsDisabled = $previous;
+        }
+    }
+
+    /**
+     * 广播数据变更事件（db.changed）
+     *
+     * 重入保护：监听器内部再次写库（例如写审计表）会重新走到本方法，
+     * 此时 $eventDepth 已大于 0，直接跳过广播，从而避免无限递归。
+     * 一次顶层写入只广播一次，嵌套写入对监听器不可见。
+     *
+     * @param string $table 不带表前缀的逻辑表名
+     * @param string $action insert|update|delete|truncate|drop
+     * @param int    $affected 影响行数（DDL 恒为 0）
+     * @return void
+     */
+    protected function dispatchChanged($table, $action, $affected = 0)
+    {
+        if (self::$eventsDisabled || self::$eventDepth > 0) {
+            return;
+        }
+
+        // 无监听器时直接返回，避免为每次写入都构造一次 payload
+        if (!Event::hasListeners('db.changed')) {
+            return;
+        }
+
+        self::$eventDepth++;
+        try {
+            Event::fire('db.changed', [
+                'table'    => $table,
+                'action'   => $action,
+                'affected' => $affected,
+            ]);
+        } finally {
+            self::$eventDepth--;
+        }
+    }
+
+    /**
+     * 当前构建器指向的、不带表前缀的逻辑表名
+     *
+     * 支持 'users'、'users u'、'users AS u'、'users, roles' 等形式，只取第一个表名。
+     * 必须在 query() 执行前调用——query() 内部的 reset() 会清空 $this->from。
+     *
+     * @return string 无表名时返回空字符串
+     */
+    protected function rawTableName()
+    {
+        $from = trim((string)$this->from);
+        if ($from === '') {
+            return '';
+        }
+
+        $parts = preg_split('/[\s,]+/', $from);
+        $name = isset($parts[0]) ? $parts[0] : '';
+
+        // 剥离表前缀，监听器只认逻辑表名
+        if ($this->prefix !== '' && strpos($name, $this->prefix) === 0) {
+            $name = substr($name, strlen($this->prefix));
+        }
+
+        return $name;
+    }
+
+    /**
      * 分析表，供优化器统计信息
      */
     public function analyze()
@@ -1948,7 +2075,17 @@ class DbCore implements DbInterface
      */
     public function truncate()
     {
-        return $this->query('TRUNCATE TABLE ' . $this->from, false);
+        // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
+        $table = $this->rawTableName();
+
+        $result = $this->query('TRUNCATE TABLE ' . $this->from, false);
+
+        // DDL 的 rowCount 不可靠（恒为 0），只看执行是否成功
+        if ($result !== false) {
+            $this->dispatchChanged($table, 'truncate', 0);
+        }
+
+        return $result;
     }
 
     /**
@@ -1956,7 +2093,15 @@ class DbCore implements DbInterface
      */
     public function drop()
     {
-        return $this->query('DROP TABLE ' . $this->from, false);
+        $table = $this->rawTableName();
+
+        $result = $this->query('DROP TABLE ' . $this->from, false);
+
+        if ($result !== false) {
+            $this->dispatchChanged($table, 'drop', 0);
+        }
+
+        return $result;
     }
 
     /**
@@ -2888,6 +3033,7 @@ class DbCore implements DbInterface
     public function inc($column, int $count = 1)
     {
         $column = $this->validateIdentifier($column);
+        $table = $this->rawTableName();
         $query = "UPDATE {$this->from} SET {$column} = {$column} + {$count}";
 
         if (!is_null($this->where)) {
@@ -2905,7 +3051,14 @@ class DbCore implements DbInterface
             return $displaySql;
         }
 
-        return $this->query($query, false);
+        $affected = $this->query($query, false);
+
+        // inc/dec 本质是 UPDATE，广播的 action 统一为 update
+        if ($affected !== false && $affected > 0) {
+            $this->dispatchChanged($table, 'update', (int)$affected);
+        }
+
+        return $affected;
     }
 
     /**
@@ -2918,6 +3071,7 @@ class DbCore implements DbInterface
     public function dec($column, int $count = 1)
     {
         $column = $this->validateIdentifier($column);
+        $table = $this->rawTableName();
         $query = "UPDATE {$this->from} SET {$column} = {$column} - {$count}";
 
         if (!is_null($this->where)) {
@@ -2935,7 +3089,13 @@ class DbCore implements DbInterface
             return $displaySql;
         }
 
-        return $this->query($query, false);
+        $affected = $this->query($query, false);
+
+        if ($affected !== false && $affected > 0) {
+            $this->dispatchChanged($table, 'update', (int)$affected);
+        }
+
+        return $affected;
     }
 
     /**
