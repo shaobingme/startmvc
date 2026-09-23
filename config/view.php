@@ -5,4 +5,5 @@
 return [
     'suffix' => '.php', // 模板文件后缀,默认php，可配置为html，.blade, .tpl, .twig, .phtml之类的
     'tpl_safe_mode' => false, // 模板安全模式，开启后禁用 {php}、{echo} 标签（后台可编辑模板的场景建议开启）
+    'layout' => '', // 布局模板名（相对当前模块 view 目录），留空 = 关闭布局
 ]; 

@@ -67,15 +67,30 @@ abstract class Controller
 	{
 		// 渲染结果交给统一响应出口发送：内容仍在控制器执行期间输出（保持既有顺序语义），
 		// trace 面板改由 Response::send() 单点附加，不再在这里判断一次
-		(new Response())->html($this->view->fetch($tplfile,$data))->send();
+		// 第 3 参 true：整页渲染，按 config/view.php 的 layout 设置套布局
+		(new Response())->html($this->view->fetch($tplfile,$data,true))->send();
 	}
 	
 	/**
-	 * 获取渲染内容但不输出
+	 * 获取渲染内容但不输出（取片段：强制不套布局，供 Ajax / 局部刷新使用）
 	 */
 	protected function fetch($tplfile='',$data=[])
 	{
-		return $this->view->fetch($tplfile,$data);
+		return $this->view->fetch($tplfile,$data,false);
+	}
+	
+	/**
+	 * 设置布局模板（链式，作用于本次请求的视图渲染）
+	 *
+	 * 传空字符串关闭布局；前台 / 后台共用同一份视图时用来换壳。
+	 *
+	 * @param string $name 布局模板名，'' = 关闭
+	 * @return $this
+	 */
+	protected function layout($name = '')
+	{
+		$this->view->layout($name);
+		return $this;
 	}
 	
 	/**

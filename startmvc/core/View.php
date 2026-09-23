@@ -18,6 +18,8 @@ class view{
 	public $tpl_compile_dir = '';
 	public $tpl_safe_mode = false;
 	public $tpl_cache_time = 0; // 缓存时间(秒)，0表示不缓存
+	// 布局模板名；空字符串 = 关闭布局（默认，行为与旧版逐字节一致）
+	public $tpl_layout = '';
 	// 将 vars 改为静态属性，使所有视图实例共享变量
 	protected static $vars = array();
 	public $compiled_file='';
@@ -107,6 +109,11 @@ class view{
 		if (isset($viewConfig['tpl_safe_mode']) && $viewConfig['tpl_safe_mode']) {
 			$this->tpl_safe_mode = true;
 		}
+
+		// 读取布局配置：布局模板名（相对当前模块 view 目录），留空 = 关闭布局
+		if (isset($viewConfig['layout'])) {
+			$this->tpl_layout = (string) $viewConfig['layout'];
+		}
 	}
 
 	//模板赋值
@@ -123,6 +130,21 @@ class view{
 		return $this; // 支持链式调用
 	}
 	
+	/**
+	 * 设置布局模板（链式）
+	 *
+	 * 布局模板就是普通模板文件，正文位置写 {$__content__}（不转义，直接输出）。
+	 * 传空字符串即关闭布局（本次渲染不再套壳）。
+	 *
+	 * @param string $name 布局模板名（相对当前模块 view 目录），'' = 关闭
+	 * @return $this
+	 */
+	public function layout($name = '')
+	{
+		$this->tpl_layout = (string) $name;
+		return $this;
+	}
+
 	/**
 	 * 获取模板文件路径和缓存文件路径
 	 * 
@@ -155,37 +177,43 @@ class view{
 		return ['tplFile' => $tplFile, 'cacheFile' => $cacheFile];
 	}
 
-	//视图渲染 支持多级目录
+	//视图渲染 支持多级目录（整页渲染，按当前设置套布局）
 	public function display($name='', $data=[])
 	{
-		$paths = $this->getTemplatePaths($name);
-		$tplFile = $paths['tplFile'];
-		$cacheFile = $paths['cacheFile'];
-		
-		// 模板文件不存在直接返回
-		if (!file_exists($tplFile)) {
-			throw new \Exception($tplFile.' 模板文件不存在');
-		}
-		
-		if (!empty($data)) {
-			self::$vars = array_merge(self::$vars, $data); // 使用静态属性
-		}
-		// 将变量导入到当前
-		extract(self::$vars); // 使用静态属性
-		// 获取渲染后的内容
-		ob_start();
-		$this->_compile($tplFile, $cacheFile);
-		include $cacheFile;
-		$content = ob_get_clean();
-		
 		// 直接输出内容，不要处理trace
-		echo $content;
-		
+		echo $this->fetch($name, $data, true);
+
 		return $this; // 支持链式调用
 	}
-	
-	// 返回渲染后的内容，而不是直接输出
-	public function fetch($name='', $data=[])
+
+	/**
+	 * 返回渲染后的内容，而不是直接输出
+	 *
+	 * @param string $name 模板名称
+	 * @param array $data 追加的模板变量
+	 * @param bool|null $withLayout 是否套布局：
+	 *                              null  = 按当前设置（config/view.php 的 layout + layout()）
+	 *                              false = 强制不套（取片段 / Ajax / 局部刷新）
+	 *                              true  = 允许套（布局名为空时仍不套）
+	 * @return string
+	 */
+	public function fetch($name='', $data=[], $withLayout=null)
+	{
+		$content = $this->renderTemplate($name, $data);
+
+		if ($withLayout !== false && $this->tpl_layout !== '') {
+			// 正文注入布局的 {$__content__} 位；渲染完立刻清掉，避免静态变量跨渲染残留
+			$content = $this->renderTemplate($this->tpl_layout, ['__content__' => $content]);
+			unset(self::$vars['__content__']);
+		}
+
+		return $content;
+	}
+
+	/**
+	 * 渲染单个模板文件并返回内容（原 fetch() 的实现，未作改动）
+	 */
+	private function renderTemplate($name='', $data=[])
 	{
 		$paths = $this->getTemplatePaths($name);
 		$tplFile = $paths['tplFile'];
