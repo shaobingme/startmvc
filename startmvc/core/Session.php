@@ -83,7 +83,9 @@ class Session
     public static function clear()
     {
         $prefix = self::$prefix ?? (Config::load('common')['session_prefix'] ?? '');
-        foreach (array_keys($_SESSION) as $key) {
+        // CLI 下 $_SESSION 未定义（array_key_exists 为 false），
+        // array_keys(null) 在 PHP 8 会抛 TypeError；用 ?? [] 兜底
+        foreach (array_keys($_SESSION ?? []) as $key) {
             // 只处理带前缀且非空的键
             if ($prefix !== '' && strpos($key, $prefix) === 0) {
                 unset($_SESSION[$key]);
@@ -97,7 +99,9 @@ class Session
      */
     public static function destroy()
     {
-        $result = session_destroy();
+        // 未启动会话时 session_destroy() 会抛 Warning「Trying to destroy
+        // uninitialized session」并返回 false（CLI 下是常态）；先判状态，返回值语义不变
+        $result = session_status() === PHP_SESSION_ACTIVE ? session_destroy() : false;
         $_SESSION = []; // 清空当前脚本中的会话数据
         return $result;
     }
@@ -112,7 +116,8 @@ class Session
         $prefix = self::$prefix ?? (Config::load('common')['session_prefix'] ?? '');
         $result = [];
         
-        foreach ($_SESSION as $key => $value) {
+        // 同 clear()：$_SESSION 可能未定义，用 ?? [] 兜底
+        foreach ($_SESSION ?? [] as $key => $value) {
             // 只处理带前缀且非空的键
             if ($prefix !== '' && strpos($key, $prefix) === 0) {
                 $newKey = $withPrefix ? $key : substr($key, strlen($prefix));
