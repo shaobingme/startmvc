@@ -16,8 +16,14 @@ class view{
 	public $tpl_right_delimiter = '}';
 	public $tpl_template_dir = '';
 	public $tpl_compile_dir = '';
+	// 编译缓存的模块级根目录（不含 theme）；clearCache() 按它递归清，能一次清掉所有主题
+	public $tpl_compile_base = '';
 	public $tpl_safe_mode = false;
 	public $tpl_cache_time = 0; // 缓存时间(秒)，0表示不缓存
+	// 本次编译内联进来的 {include} 文件清单（路径 => true，键即路径，用于去重）。
+	// 只在 tpl_cache_time > 0 时记录并写入编译产物，供 depsFresh() 判断依赖是否已更新；
+	// 默认（0）不记录，编译产物与旧版逐字节一致。
+	protected $compiled_deps = array();
 	// 布局模板名；空字符串 = 关闭布局（默认，行为与旧版逐字节一致）
 	public $tpl_layout = '';
 	// 将 vars 改为静态属性，使所有视图实例共享变量
@@ -92,12 +98,16 @@ class view{
 
 		$theme=config('theme')?config('theme').DS:'';
 		$this->tpl_template_dir = APP_PATH .$this->route_module . DS. 'view'.DS.$theme;
-		$this->tpl_compile_dir = TEMP_PATH.$this->route_module.DS;
+		// 编译目录与模板目录同构（同样带上 theme）：多主题站点两套模板内容不同，
+		// 缓存也必须分开放，否则会撞同一个缓存文件；theme 为空时路径与旧版逐字节一致
+		$this->tpl_compile_base = TEMP_PATH.$this->route_module.DS;
+		$this->tpl_compile_dir = $this->tpl_compile_base . $theme;
 		$this->left_delimiter_quote = preg_quote($this->tpl_left_delimiter);
 		$this->right_delimiter_quote = preg_quote($this->tpl_right_delimiter);
 		
-		// 读取配置的缓存时间
-		$this->tpl_cache_time = intval(config('tpl_cache_time', 0));
+		// 读取配置的缓存时间：优先 view 组（与 suffix / tpl_safe_mode / layout 同处，便于查找），
+		// 回退顶层键以兼容旧位置（config/common.php 或 config/local.php）
+		$this->tpl_cache_time = intval(config('view.tpl_cache_time', config('tpl_cache_time', 0)));
 		
 		// 读取模板后缀配置
 		$viewConfig = Config::load('view');
@@ -251,11 +261,15 @@ class view{
 			// 如果缓存未过期且模板未修改，直接使用缓存
 			if ($this->tpl_cache_time > 0 && 
 				(time() - $cacheModified < $this->tpl_cache_time) && 
-				$tplModified <= $cacheModified) {
+				$tplModified <= $cacheModified && 
+				$this->depsFresh($cacheFile, $cacheModified)) {
 				return;
 			}
 		}
 		
+		// 重置依赖清单：同一实例连续编译多个模板时，避免上一个模板的 {include} 残留进来
+		$this->compiled_deps = array();
+
 		// 编译模板
 		$content = @file_get_contents($tplFile);
 		if ($content === false) {
@@ -285,8 +299,57 @@ class view{
 		
 		// 添加编译时间戳注释
 		$content = "<?php /* 模板编译于: " . date('Y-m-d H:i:s') . " */ ?>\n" . $content;
+
+		// 开启编译缓存时，把本次内联的依赖清单写进产物首行（base64 编码，避免路径里的
+		// */ 或引号破坏注释）。即使没有依赖也写空数组：这样「读不到 deps 行」就只可能
+		// 是升级前的旧缓存，否则会陷入「无依赖 → 不写行 → 下次读不到 → 判失效 → 又重
+		// 编译」的死循环。
+		if ($this->tpl_cache_time > 0) {
+			$deps = base64_encode(json_encode(array_keys($this->compiled_deps), JSON_UNESCAPED_SLASHES));
+			$content = "<?php /* @deps " . $deps . " */ ?>\n" . $content;
+		}
 		
 		file_put_contents($cacheFile, $content, LOCK_EX);
+	}
+
+	/**
+	 * 校验编译产物的依赖清单是否仍然新鲜
+	 *
+	 * {include} 是编译期内联的，被包含文件的 mtime 不会影响主模板，
+	 * 所以要把依赖清单写进产物、在这里逐个比对，否则改被包含文件不会触发重编译。
+	 *
+	 * @param string $cacheFile     编译产物路径
+	 * @param int    $cacheModified 产物的 mtime
+	 * @return bool true = 依赖都未更新，可以继续用缓存
+	 */
+	private function depsFresh($cacheFile, $cacheModified)
+	{
+		$fh = @fopen($cacheFile, 'rb');
+		if (!$fh) {
+			return false;
+		}
+		$line = fgets($fh);
+		fclose($fh);
+
+		// 首行没有 deps 标记 = 升级前生成的旧缓存（那时还没有依赖追踪）→ 保守判失效，
+		// 重编译一次后产物就会带上 deps 行，不会反复重编译
+		if ($line === false || !preg_match('~^<\?php /\* @deps ([A-Za-z0-9+/=]*) \*/ \?>~', $line, $m)) {
+			return false;
+		}
+
+		$deps = json_decode((string) base64_decode($m[1], true), true);
+		if (!is_array($deps)) {
+			return false;
+		}
+
+		foreach ($deps as $dep) {
+			$depModified = @filemtime($dep);
+			// 依赖被改动（mtime 比产物新）或已被删除，都要重编译
+			if ($depModified === false || $depModified > $cacheModified) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -637,6 +700,12 @@ class view{
 			return '<!-- 包含文件 ' . $name . ' 不存在 -->';
 		}
 
+		// 记录依赖：被包含文件是编译期内联的，它改了以后主模板的 mtime 不会变，
+		// 必须单独记下来供下次 depsFresh() 比对（用键去重，嵌套 include 会重复进入）
+		if ($this->tpl_cache_time > 0) {
+			$this->compiled_deps[str_replace('\\', '/', $tplFile)] = true;
+		}
+
 		// 读取包含文件内容
 		$content = file_get_contents($tplFile);
 
@@ -735,8 +804,13 @@ class view{
 	// 清除模板缓存
 	public function clearCache($name = null) {
 		if ($name === null) {
-			// 清除所有缓存
-			$this->_clearDir($this->tpl_compile_dir);
+			// 清除所有缓存：按模块根目录递归，多主题子目录一并清掉。
+			// 若外部把 tpl_compile_dir 指到了模块根目录之外（自定义目录），则尊重它，不动根目录。
+			$base = $this->tpl_compile_base;
+			$dir = ($base !== '' && strpos($this->tpl_compile_dir, $base) === 0)
+				? $base
+				: $this->tpl_compile_dir;
+			$this->_clearDir($dir);
 		} else {
 			// 清除指定模板缓存
 			$cacheFile = $this->tpl_compile_dir . $name . '.php';
