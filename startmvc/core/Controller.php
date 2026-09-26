@@ -31,15 +31,11 @@ abstract class Controller
 			$this->view = new View($this->request);
 		}
 	/**
-	 * 模型定义
+	 * 模型定义：委托给全局 model() 助手，解析规则单点维护，控制器内外行为完全一致
 	 */
 	protected function model($model, $module = null)
 	{
-		// 模块名默认取当前路由上下文（CLI / 队列下回退到配置的默认模块），
-		// 不再依赖 MODULE 常量，也不受子类是否调用 parent::__construct 影响
-		$module = $module ?: Request::currentRoute('module', config('default_module') ?: 'home');
-		$model = APP_NAMESPACE.'\\' . $module . '\\'. 'model\\' . $model . 'Model';
-		return Loader::getInstance($model);
+		return \model($model, $module);
 	}
 	/**
 	 * url的方法：与全局 url() 助手保持同一实现
