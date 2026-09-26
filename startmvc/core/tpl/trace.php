@@ -382,9 +382,10 @@ if(config('trace')): ?>
 		<!-- SQL查询面板 -->
 		<div id="panel-sql" class="smt-panel">
 			<div class="smt-box smt-box-lg">
-				<?php 
-				// 只有在需要使用时才加载
-				if (class_exists('startmvc\core\db\DbCore')) {
+				<?php
+				// 只有在使用过 DB 时才读取 SQL 日志；
+				// 第二参 false 禁止 class_exists 触发 autoload，避免纯页面请求被拖入 DbCore（87KB）
+				if (class_exists('startmvc\core\db\DbCore', false)) {
 					$sqlLogs = startmvc\core\db\DbCore::getSqlLogs();
 				} else {
 					$sqlLogs = [];
