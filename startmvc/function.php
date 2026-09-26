@@ -322,6 +322,32 @@ function get_ip() {
 	return \startmvc\core\Request::ip();
 }
 
+/**
+ * 请求助手函数
+ *
+ * 返回贯穿本次请求的 Request 实例（容器中绑定的唯一快照，与控制器、
+ * 中间件读到的是同一份数据，中间件附加的状态不会丢）；未绑定（纯 CLI /
+ * 早期引导阶段）时回退为基于当前超全局变量构造的临时实例。
+ *
+ * 与静态调用 Request::get() 的区别：静态形式经 __callStatic 每次新建
+ * 临时实例，会丢掉中间件附加的数据；request() 始终指向同一实例。
+ *
+ * 与 input() 的分工：request() 给请求对象本身（可链式调全部 API），
+ * input('key') 是取值的极简语法糖。
+ *
+ * 用法：
+ *   request()->isPost();
+ *   request()->get('id', ['type' => 'int']);
+ *   request()->header('User-Agent');
+ *   request()->method();
+ *
+ * @return \startmvc\core\Request
+ */
+function request()
+{
+    return \startmvc\core\Request::current();
+}
+
 /* ==================== 输入取值助手 ====================
  * 与 Request::input() 同源：类做引擎、函数做语法糖，风格与 config()/Config、
  * cache()/Cache、db()/Db 一致。取值来源为「POST 优先、GET 兜底」，
