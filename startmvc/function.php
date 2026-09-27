@@ -228,6 +228,43 @@ function cache($name, $value = null, $ttl = null, $driver = null)
 }
 
 /**
+ * Session 存取助手函数（与 cache() 同一套三元约定）
+ *
+ * @param string|null $key     键名；为空返回全部会话数据（自动去前缀）
+ * @param mixed       $value   null 表示读取；false 表示删除该键；其余值为写入
+ * @param mixed       $default 读取时的默认值（仅读模式生效，透传 Session::get）
+ * @return mixed 读取返回值（未命中返回 $default）；写入返回写入值；删除无返回
+ *
+ * 用法：
+ *   session('user')                    取（未命中 null）
+ *   session('user', null, [])          取，未命中返回 []
+ *   session('user', ['id' => 1])       写
+ *   session('user', false)             删
+ *   session()                          全部会话数据（等价 Session::all()）
+ */
+function session($key = null, $value = null, $default = null)
+{
+    if ($key === null) {
+        return \startmvc\core\Session::all();
+    }
+
+    // 读取（value 为 null；存 null 值请直接用 Session::set，与 cache() 约定一致）
+    if ($value === null) {
+        return \startmvc\core\Session::get($key, $default);
+    }
+
+    // 删除
+    if ($value === false) {
+        \startmvc\core\Session::delete($key);
+        return;
+    }
+
+    // 写入
+    \startmvc\core\Session::set($key, $value);
+    return $value;
+}
+
+/**
  * url的方法
  */
 function url($url){

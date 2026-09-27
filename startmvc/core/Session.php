@@ -73,7 +73,12 @@ class Session
      */
     public static function delete($key)
     {
-        unset($_SESSION[self::getKey($key)]);
+        // CLI / 未启动会话时 $_SESSION 完全未定义，直接 unset 会触发
+        // PHP 8 E_WARNING「Undefined variable $_SESSION」；与 clear()/all()
+        // 的兜底策略同族（isset 对未定义/为 null 均安全，不告警）
+        if (isset($_SESSION)) {
+            unset($_SESSION[self::getKey($key)]);
+        }
     }
 
     /**
