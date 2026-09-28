@@ -318,6 +318,29 @@ function url($url){
 }
 
 /**
+ * 跳转助手函数
+ *
+ * 构建 Location 响应并以 HttpResponseException 中断执行（异常由 App::run
+ * 统一捕获发送），与 Controller::redirect()/json() 的"调用即终止"语义一致；
+ * 由此控制器之外的位置（中间件 / 模板 / 事件监听 / 模型）也能跳转。
+ * 重定向响应不会附加 trace 面板（Response::shouldTrace 已排除）。
+ *
+ * 用法：
+ *   redirect(url('user/login'));           302 临时跳转（站内地址配合 url() 生成，自动带 url_suffix/重写规则）
+ *   redirect('https://example.com', 301);  301 永久跳转（外链直接传完整 URL）
+ *
+ * @param string $url    目标地址；为空时回退跳转首页 '/'
+ * @param int    $status 状态码：301 永久 / 302 临时（默认）/ 303 / 307 / 308
+ * @return void 不会返回——正常路径下必抛响应异常
+ */
+function redirect($url, $status = 302)
+{
+	throw new \startmvc\core\HttpResponseException(
+		(new \startmvc\core\Response())->redirect($url ?: '/', $status)
+	);
+}
+
+/**
  * 数据库助手函数 - 支持链式操作和自定义配置
  * 
  * 使用示例：
