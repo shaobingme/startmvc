@@ -265,6 +265,45 @@ function session($key = null, $value = null, $default = null)
 }
 
 /**
+ * Cookie 存取助手函数（与 session()/cache() 同一套三元约定）
+ *
+ * @param string|null $key     键名；为空返回全部 Cookie（自动去前缀）
+ * @param mixed       $value   null 表示读取；false 表示删除该键；其余值为写入
+ * @param array       $options 选项（含义随模式而定，均透传 Cookie 类）：
+ *        - 读模式：default（未命中默认值，缺省空串 ''）、type（int/string/float/bool/array）、
+ *          filter（true 时 HTML 转义）、function（处理函数名，如 'trim'）
+ *        - 写/删模式：expire（过期时间戳，默认 0 会话级）、path、domain、secure、httponly、samesite
+ * @return mixed 读取返回值（未命中返回 $options['default']，Http::handling 缺省为 ''，
+ *         与 session() 未命中 null 不同；需区分未命中与空串用 Cookie::has()）；写入/删除返回 bool
+ *
+ * 用法：
+ *   cookie('token')                              取（未命中 ''）
+ *   cookie('page', null, ['default' => 1, 'type' => 'int'])  取，带默认值与类型转换
+ *   cookie('token', 'abc', ['expire' => time() + 3600])      写（1 小时）
+ *   cookie('token', false)                       删
+ *   cookie()                                     全部 Cookie（等价 Cookie::all()）
+ */
+function cookie($key = null, $value = null, array $options = [])
+{
+    if ($key === null) {
+        return \startmvc\core\Cookie::all();
+    }
+
+    // 删除
+    if ($value === false) {
+        return \startmvc\core\Cookie::delete($key, $options);
+    }
+
+    // 读取（value 为 null；默认值/类型转换经 $options 透传 Cookie::get → Http::handling）
+    if ($value === null) {
+        return \startmvc\core\Cookie::get($key, $options);
+    }
+
+    // 写入
+    return \startmvc\core\Cookie::set($key, $value, $options);
+}
+
+/**
  * url的方法
  */
 function url($url){
