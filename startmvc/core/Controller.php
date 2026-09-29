@@ -139,11 +139,15 @@ abstract class Controller
 
 
 	/**
-	 * 跳转：构建带 Location 头的 Response 并以响应异常中断执行
+	 * 跳转：委托给全局 redirect() 助手——调用即终止（抛 HttpResponseException，
+	 * 由 App::run 统一捕获发送），与控制器内外行为完全一致，解析规则单点维护。
+	 * 补齐 $status 参数（301/302/303/307/308），此前控制器版本固定 302。
+	 * @param string $url    目标地址，空串时兜底跳转首页 '/'
+	 * @param int    $status 重定向状态码，默认 302
 	 */
-	protected function redirect($url='')
+	protected function redirect($url = '', $status = 302)
 	{
-		throw new HttpResponseException((new Response())->redirect($url ?: '/'));
+		return \redirect($url, $status);
 	}
 	/**
 	 * 404方法
