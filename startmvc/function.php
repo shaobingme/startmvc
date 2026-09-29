@@ -367,6 +367,34 @@ function json($data, $status = 200)
 }
 
 /**
+ * 日志记录助手函数（PSR-3 风格，委托 Logger 类）
+ *
+ * 首次调用实例化并缓存共享 Logger 实例（读取 config/log.php；Logger 无
+ * 查询状态，共享实例安全），后续调用复用，避免重复读配置与准备目录。
+ * 级别为 PSR-3 八级：debug / info / notice / warning / error / critical /
+ * alert / emergency；未知级别由 Logger fail-fast 抛 InvalidArgumentException。
+ * message 支持 {占位符} 配合 $context 插值（值须为字符串或数字）。
+ *
+ * 用法：
+ *   logger('info', '用户登录', ['uid' => 1]);
+ *   logger('error', '支付回调失败: {reason}', ['reason' => '超时']);
+ *
+ * @param string $level   日志级别（PSR-3 八级）
+ * @param string $message 日志内容
+ * @param array  $context 上下文数据
+ * @return bool 是否真正写入（未启用 / 级别过滤 / 写入失败均返回 false，
+ *              Logger 写入永不抛异常）
+ */
+function logger($level, $message, array $context = [])
+{
+	static $logger = null;
+	if ($logger === null) {
+		$logger = new \startmvc\core\Logger();
+	}
+	return $logger->log($level, $message, $context);
+}
+
+/**
  * 数据库助手函数 - 支持链式操作和自定义配置
  * 
  * 使用示例：
