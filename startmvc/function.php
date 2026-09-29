@@ -341,6 +341,32 @@ function redirect($url, $status = 302)
 }
 
 /**
+ * JSON 响应助手函数（调用即终止）
+ *
+ * 构建 application/json 响应以 HttpResponseException 中断执行（异常由
+ * App::run 统一捕获发送），与 redirect() / Controller::json() 的
+ * 「调用即终止」语义一致——控制器之外的位置（中间件 / 路由闭包 /
+ * 事件监听 / 模型）也能直接输出 JSON。
+ * Content-Type 为 application/json; charset=utf-8，中文不转义
+ * （JSON_UNESCAPED_UNICODE）。构建但不发送的场景请直接用
+ * Response::json()（返回 Response 实例，可继续链式设置头 / Cookie）。
+ *
+ * 用法：
+ *   json(['code' => 0, 'msg' => 'ok']);      200 正常返回
+ *   json(['error' => '未登录'], 401);        指定 401 状态码
+ *
+ * @param mixed $data   待编码数据（数组 / 对象 / 标量均可）
+ * @param int   $status HTTP 状态码，默认 200
+ * @return void 不会返回——正常路径下必抛响应异常
+ */
+function json($data, $status = 200)
+{
+	throw new \startmvc\core\HttpResponseException(
+		(new \startmvc\core\Response())->json($data, $status)
+	);
+}
+
+/**
  * 数据库助手函数 - 支持链式操作和自定义配置
  * 
  * 使用示例：

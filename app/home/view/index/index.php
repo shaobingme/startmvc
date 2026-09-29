@@ -96,7 +96,7 @@
         <a href="https://startmvc.com/doc/detail/1.html" target="_blank" rel="noopener">
             <span><b>官方文档</b><em>路由、模型、模板与中间件手册</em></span><i>&rarr;</i>
         </a>
-        <a href="http://startmvc.com" target="_blank" rel="noopener">
+        <a href="https://startmvc.com/log" target="_blank" rel="noopener">
             <span><b>官网与版本</b><em>查看最新版本与更新日志</em></span><i>&rarr;</i>
         </a>
         <a href="https://startmvc.com/topic" target="_blank" rel="noopener">
