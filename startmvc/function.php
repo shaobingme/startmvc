@@ -367,6 +367,31 @@ function json($data, $status = 200)
 }
 
 /**
+ * HTTP 异常助手函数（调用即终止）
+ *
+ * 抛出 HttpException（携带状态码 400~599），由 Exception::handleException()
+ * 统一捕获渲染：非 Ajax 按状态码出错误页（404 复用 tpl/404.php，其余用
+ * tpl/http_error.php），Ajax 输出同状态码 JSON。与 redirect()/json() 同属
+ * 「调用即终止」家族，但中断原因是 HTTP 层错误（401/403/404/422...）而非
+ * 正常的跳转/响应输出；普通 \Exception 一律落 500，需要自定义状态码时用本函数。
+ * 4xx 不写错误日志（预期内的客户端错误），5xx 照常记录。
+ *
+ * 用法：
+ *   abort(404);                       页面不存在（默认消息 Not Found）
+ *   abort(403, '无权访问');            权限拒绝（消息面向客户端展示）
+ *   abort(429, '请求过于频繁', ['Retry-After' => '60']);
+ *
+ * @param int    $code    HTTP 状态码（400~599，越界抛 InvalidArgumentException）
+ * @param string $message 错误消息；留空时用状态码默认短语（如 403 => Forbidden）
+ * @param array  $headers 附加响应头（键名 => 值）
+ * @return void 不会返回——正常路径下必抛 HttpException
+ */
+function abort($code, $message = '', array $headers = [])
+{
+	throw new \startmvc\core\HttpException($code, $message, $headers);
+}
+
+/**
  * 日志记录助手函数（PSR-3 风格，委托 Logger 类）
  *
  * 首次调用实例化并缓存共享 Logger 实例（读取 config/log.php；Logger 无

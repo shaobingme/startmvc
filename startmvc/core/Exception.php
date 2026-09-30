@@ -81,6 +81,21 @@ class Exception
 			exit;
 		}
 
+		// HTTP 异常（abort() 抛出）：按携带的状态码渲染。
+		// 4xx 属预期内的客户端错误（权限/不存在/参数错），参照主流框架惯例不写日志，
+		// 避免刷爆错误日志；5xx 仍是服务端问题，照常记录。
+		if ($exception instanceof HttpException) {
+			if ($exception->getStatusCode() >= 500) {
+				try {
+					self::logException($exception);
+				} catch (\Throwable $e) {
+					// 日志环节兜底，理由同下：\Error 系不是 \Exception 子类
+				}
+			}
+			self::renderHttpException($exception)->send();
+			exit;
+		}
+
 		try {
 			self::logException($exception);
 		} catch (\Throwable $e) {
@@ -140,6 +155,57 @@ class Exception
 		}
 		(new Response())->html(ob_get_clean(), 500)->withTrace(false)->send();
 		exit;
+	}
+
+	/**
+	 * 渲染 HTTP 异常对应的响应（构建但不发送）
+	 *
+	 * - Ajax：输出同状态码的 JSON，error 字段为 abort() 的消息（开发者
+	 *   写给客户端看的内容，不走 debug 开关隐藏）
+	 * - 非 Ajax：404 复用既有 tpl/404.php（消息为静态文案）；其余状态码
+	 *   用 tpl/http_error.php 展示状态码 + 消息
+	 * - 附加响应头透传给 Response（setHeader 逐条注入）
+	 *
+	 * 抽成独立方法以便构建层测试（handleException 渲染后 exit，无法在
+	 * 进程内断言）；发送与退出仍由 handleException 单点负责。
+	 *
+	 * @param HttpException $exception
+	 * @return Response
+	 */
+	public static function renderHttpException(HttpException $exception)
+	{
+		$status = $exception->getStatusCode();
+
+		if (self::isAjaxRequest()) {
+			return (new Response())->json([
+				'error' => $exception->getMessage(),
+				'code' => $status,
+			], $status)->withTrace(false);
+		}
+
+		ob_start();
+		if ($status === 404) {
+			// 404 有专属页面（静态文案），与普通异常 getCode()===404 分支共用
+			$notFoundTemplate = __DIR__ . '/tpl/404.php';
+			if (file_exists($notFoundTemplate)) {
+				include $notFoundTemplate;
+			} else {
+				echo '<h1>404 Not Found</h1><p>页面不存在</p>';
+			}
+		} else {
+			$httpErrorTemplate = __DIR__ . '/tpl/http_error.php';
+			if (file_exists($httpErrorTemplate)) {
+				include $httpErrorTemplate;
+			} else {
+				echo '<h1>' . $status . '</h1><p>' . htmlspecialchars($exception->getMessage()) . '</p>';
+			}
+		}
+
+		$response = (new Response())->html(ob_get_clean(), $status)->withTrace(false);
+		foreach ($exception->getHeaders() as $key => $value) {
+			$response->setHeader((string) $key, (string) $value);
+		}
+		return $response;
 	}
 
 	/**
