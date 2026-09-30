@@ -583,3 +583,51 @@ function e($value, $doubleEncode = true)
     }
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8', $doubleEncode);
 }
+
+/* ==================== 验证助手 ====================
+ * 类做引擎、函数做语法糖：一行完成「new Validator + setRules + validate +
+ * getError」四步，风格与 config()/Config、cache()/Cache、db()/Db 一致。
+ */
+
+/**
+ * 验证助手函数
+ *
+ * 通过返回 true；失败返回 ['字段' => '错误信息', ...]。判断务必用
+ * $ok !== true 严格比较——失败数组恒非空，与 true 天然区分，但不要用
+ * if (!$ok)（空数组才为假，这里失败数组非空，== 判断碰巧可用，勿依赖）。
+ *
+ * 与 Validator::validate() 默认的快速失败不同，这里固定收集全部字段
+ * 错误（setFailFast(false)），便于表单一次点亮所有红框、JSON 一次
+ * 返回全部错误。需要快速失败语义请直接用 Validator 类。
+ *
+ * 与 Model 自动验证的分工：Model 的 $validate 属性走写入前自动验证
+ * （失败行为由模型 failFast 决定）；validate() 用于控制器/中间件/闭包
+ * 里手动验证任意数据，两者共用同一套规则语法，可无缝迁移。
+ *
+ * 规则语法（同 Validator::setRules()）：
+ *   'mobile' => 'isMobile'                        单规则
+ *   'code'   => 'required|minlen:4|maxlen:6'      管道多规则，:参数 按逗号拆
+ *   'name'   => '`昵称`required'                  反引号里是字段别名（错误消息展示用）
+ *   'name'   => 'required``昵称不能为空``'         双反引号里是自定义错误消息
+ *   'user'   => ['name' => 'required', ...]       嵌套数组规则
+ * 非 required 字段缺失或空串会跳过其余规则（可选字段语义）。
+ *
+ * 用法：
+ *   validate(['mobile' => 'isMobile'])              自动验证当前请求全部输入（POST 优先，GET 兜底）
+ *   validate(['age' => 'isNatural'], ['age' => 5])  验证指定数据
+ *   $ok = validate($rules);
+ *   if ($ok !== true) { return json(['error' => $ok], 422); }
+ *
+ * @param array      $rules 验证规则（键为字段名，值为规则串或嵌套数组）
+ * @param array|null $data  待验证数据；为 null 时自动取 input() 全量请求输入
+ * @return true|array 通过返回 true；失败返回 字段 => 错误信息 数组
+ */
+function validate(array $rules, ?array $data = null)
+{
+    $validator = new \startmvc\core\Validator();
+    $validator->setFailFast(false)->setRules($rules);
+    if ($validator->validate($data ?? input())) {
+        return true;
+    }
+    return $validator->getError();
+}
