@@ -62,7 +62,9 @@ use startmvc\core\Db;
 function env($key, $default = null)
 {
     $value = getenv($key);
-    if ($value === false || $value === '') {
+    if ($value === false) {
+        // 仅「未设置」回退默认值；显式空值（DB_PREFIX=）原样返回空串，
+        // 使 env('DB_PREFIX') ?? 'sm_' 语义成立：空串非 null，不触发兜底
         return $default;
     }
     switch (strtolower($value)) {
