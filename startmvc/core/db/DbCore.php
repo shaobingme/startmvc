@@ -3179,9 +3179,11 @@ class DbCore implements DbInterface
 
     /**
      * 设置排序
-     * 
-     * @param string|array $columns 排序字段
-     * @param string $order 排序方式
+     *
+     * @param string|array $columns 排序字段，支持多字段写法：
+     *   - 字符串逗号分隔，每段可带独立方向: 'sort ASC, id DESC'
+     *   - 数组形式所有字段共用 $order 方向: ['sort', 'id'], 'DESC'
+     * @param string $order 排序方式（段内未显式指定方向时使用）
      * @return $this
      */
     public function order($columns, $order = 'ASC')
@@ -3201,15 +3203,49 @@ class DbCore implements DbInterface
             // 处理特殊情况如RAND()
             if (strtolower($columns) === 'rand()') {
                 $this->orderBy = $columns;
-            } elseif (preg_match('/^(.+?)\s+(ASC|DESC)$/i', $columns, $m)) {
-                // 已包含排序方向: 拆分后分别校验
-                $this->orderBy = $this->validateIdentifier($m[1], true) . ' ' . strtoupper($m[2]);
-            } elseif (strpos($columns, ' ') !== false) {
-                // 包含空格但方向非法，拒绝（原逻辑会直接放行，存在注入风险）
-                throw new \InvalidArgumentException('非法的排序字段: ' . $columns);
-            } else {
-                $this->orderBy = $this->validateIdentifier($columns, true) . " {$order}";
+                return $this;
             }
+
+            // 按顶层逗号拆分多字段（括号内逗号不拆，兼容 FIELD(a,b) 等函数形式）
+            $segments = [];
+            $current = '';
+            $depth = 0;
+            $length = strlen($columns);
+            for ($i = 0; $i < $length; $i++) {
+                $char = $columns[$i];
+                if ($char === '(') {
+                    $depth++;
+                } elseif ($char === ')') {
+                    $depth--;
+                }
+                if ($char === ',' && $depth === 0) {
+                    $segments[] = $current;
+                    $current = '';
+                } else {
+                    $current .= $char;
+                }
+            }
+            $segments[] = $current;
+
+            // 每段形如 "field [ASC|DESC]"：先摘尾部方向，剩余整体作为字段
+            // （不做空白拆 token，避免 FIELD(a, 'b') 等含空格函数形式被拆碎）
+            $parts = [];
+            foreach ($segments as $segment) {
+                $segment = trim($segment);
+                if ($segment === '') {
+                    throw new \InvalidArgumentException('非法的排序字段: 空的排序段');
+                }
+                if (preg_match('/^(.+?)\s+(ASC|DESC)$/i', $segment, $m)) {
+                    $field = trim($m[1]);
+                    $direction = strtoupper($m[2]);
+                } else {
+                    // 未显式指定方向，沿用第二参默认方向（入口已过白名单）
+                    $field = $segment;
+                    $direction = $order;
+                }
+                $parts[] = $this->validateIdentifier($field, true) . " {$direction}";
+            }
+            $this->orderBy = implode(', ', $parts);
         }
         return $this;
     }
