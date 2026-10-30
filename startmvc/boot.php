@@ -18,8 +18,8 @@ if (version_compare(PHP_VERSION , '7.2', '<')) {
 
 
 //版本号
-define('SM_VERSION', '3.3.3');
-define('SM_UPDATE', '20261025');
+define('SM_VERSION', '3.3.4');
+define('SM_UPDATE', '20261031');
 // 应用命名空间（请与应用所在目录名保持一致）
 define('APP_NAMESPACE', 'app');
 //应用目录
@@ -50,6 +50,10 @@ if (is_file(ROOT_PATH . 'vendor'.DS.'autoload.php')) {
     require __DIR__ . '/autoload.php';
     Autoload::register();
 }
+
+// 加载用户函数：extend/*/function.php（扩展）→ app/function.php（应用）
+// 放在自动加载之后，函数体内可直接引用框架类；CLI 与 HTTP 走同一段代码
+\startmvc\core\App::loadUserFunctions();
 
 // 设置默认时区
 $config = \startmvc\core\Config::load('common');

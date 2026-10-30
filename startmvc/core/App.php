@@ -38,7 +38,6 @@ class App
 		$beginMem = memory_get_usage();
 
 		Exception::init();
-		$this->loadFunction();
 
 		// 创建请求对象并在容器中绑定为单例：
 		// 中间件管道、路由闭包、控制器方法签名注入的都是这同一个实例
@@ -120,15 +119,56 @@ class App
 	}
 
 	/**
-	 * 加载自定义函数
+	 * 加载用户函数：扩展函数 + 应用全局函数
+	 *
+	 * 顺序固定为 extend/<扩展名>/function.php（glob 默认按目录名升序）→ app/function.php。
+	 * 由 boot.php 在自动加载注册完成后调用，因此 CLI 与 HTTP 行为一致。
+	 * 模块级函数（app/{module}/function.php）不在这里加载，见 loadModuleFunctions()。
+	 *
+	 * @return void
 	 */
-	private static function loadFunction($dirPath = ROOT_PATH.'function'.DS.'*.php')
+	public static function loadUserFunctions()
 	{
-		$files=glob($dirPath);
-		if (is_array($files)) {
-			foreach ($files as $v) {
-				if(is_file($v)) require_once($v);
+		static $done = false;
+		if ($done) {
+			return;
+		}
+		$done = true;
+
+		// 扩展自带的函数文件：每个扩展目录自包含，删除目录即卸载
+		foreach ((array)glob(ROOT_PATH . 'extend' . DS . '*' . DS . 'function.php') as $file) {
+			if (is_file($file)) {
+				require_once $file;
 			}
+		}
+
+		// 应用全局函数
+		if (is_file(APP_PATH . 'function.php')) {
+			require_once APP_PATH . 'function.php';
+		}
+	}
+
+	/**
+	 * 加载模块级函数：app/{module}/function.php
+	 *
+	 * 由 Router::resolveAction() 在模块名解析出来后调用，同一请求内同一模块只加载一次。
+	 * 注意：路由闭包不经过 resolveAction，闭包里需要时请自行 require_once。
+	 *
+	 * @param string $module 模块名（小写）
+	 * @return void
+	 */
+	public static function loadModuleFunctions($module)
+	{
+		static $loaded = [];
+		$module = strtolower((string)$module);
+		if ($module === '' || isset($loaded[$module])) {
+			return;
+		}
+		$loaded[$module] = true;
+
+		$file = APP_PATH . $module . DS . 'function.php';
+		if (is_file($file)) {
+			require_once $file;
 		}
 	}
 

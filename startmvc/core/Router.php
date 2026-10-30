@@ -638,6 +638,11 @@ class Router
         $defaultAction = config('default_action') ?: 'index';
 
         $module = strtolower($parts[0] ?? $defaultModule);
+
+        // 模块级函数：app/{module}/function.php，进入该模块时加载一次
+        // 路由表命中与 URL 结构解析两条路径都会经过本方法
+        App::loadModuleFunctions($module);
+
         $controller = self::convertController($parts[1] ?? $defaultController);
         $method = self::convertAction($parts[2] ?? $defaultAction);
         $args = array_slice($parts, 3);
@@ -707,8 +712,10 @@ class Router
         $parts = explode('/', $uri);
         $possibleModule = strtolower($parts[0]);
 
-        // 如果模块目录存在，按正常方式解析
-        if (is_dir(APP_PATH . $possibleModule)) {
+        // 如果模块目录存在且含 controller/ 子目录，按正常方式解析。
+        // 判定条件与 resolveAction() 拼接的类路径保持一致（app/{模块}/controller/），
+        // 避免 app/middleware/、app/common/ 这类共享目录被误判为模块。
+        if (is_dir(APP_PATH . $possibleModule . DS . 'controller')) {
             return [
                 $possibleModule,
                 isset($parts[1]) ? self::convertController($parts[1]) : $defaultController,

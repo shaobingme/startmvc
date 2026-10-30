@@ -2,8 +2,10 @@
 /**
  * StartMVC 官方扩展 —— 图片验证码助手函数
  *
- * 放在 function/ 目录，由 App::loadFunction() 在 HTTP 请求中自动加载，
- * 因此在 Validator 里可以直接把函数名当规则名用：
+ * 随扩展目录自包含：删除 extend/captcha/ 即彻底卸载（类、字体、函数一并移除）。
+ * 由 App::loadUserFunctions() 统一加载（boot.php），CLI 与 HTTP 均可用。
+ *
+ * 在 Validator 里可以直接把函数名当规则名用：
  *
  *   $rules = ['yzm' => 'required|captcha'];
  *   $rules = ['yzm' => 'required|captcha``验证码不正确``'];   // 自定义错误文案
@@ -12,7 +14,7 @@
  * 全局函数名——这是 Validator 唯一能「零 core 改动」接入自定义规则的途径
  * （另一条路 Validator::setTagMap() 是实例级的，Model 的声明式 $rules 用不上）。
  *
- * @package startmvc\function
+ * @package startmvc\extend\captcha
  */
 
 if (!function_exists('captcha')) {

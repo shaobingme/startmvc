@@ -74,6 +74,11 @@ class CacheClear extends Command
         $templateDeleted = 0;
 
         foreach ((array)glob($appDir . '/*', GLOB_ONLYDIR) as $module) {
+            // 与 Router 的模块判定保持一致：必须有 controller/ 子目录才算模块，
+            // 否则 app/middleware/ 这类共享目录会被当成模块名去匹配临时目录
+            if (!is_dir($module . '/controller')) {
+                continue;
+            }
             $dir = $tempDir . '/' . basename($module);
             if (!is_dir($dir)) {
                 continue;
