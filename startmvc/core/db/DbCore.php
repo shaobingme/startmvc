@@ -2130,9 +2130,21 @@ class DbCore implements DbInterface
             }
 
             $pdo = $this->getPdo();
-            $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
-            $stmt->execute([$tableName]);
-            return $stmt->rowCount() > 0;
+
+            // 注意：不能用 prepare('SHOW TABLES LIKE ?')。buildPdoOptions() 强制原生预处理
+            // （ATTR_EMULATE_PREPARES => false），而 MySQL 的 SHOW 语句占位符在原生预处理
+            // 协议下不被支持，prepare 阶段直接抛 SQLSTATE 42000，被下方 catch 静默吞掉
+            // → 所有表都被判为不存在。表名已过 validateIdentifier 白名单，quote 拼接安全。
+            if (($this->config['driver'] ?? 'mysql') === 'sqlite') {
+                // SHOW TABLES 是 MySQL 专属语法，sqlite 走 sqlite_master 等价查询
+                $stmt = $pdo->query(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = " . $pdo->quote($tableName)
+                );
+                return $stmt ? $stmt->fetch(\PDO::FETCH_ASSOC) !== false : false;
+            }
+
+            $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($tableName));
+            return $stmt ? $stmt->rowCount() > 0 : false;
         } catch (\Throwable $e) {
             // PDOException/连接异常等均视为表不可用
             return false;
