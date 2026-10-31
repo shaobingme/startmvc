@@ -89,6 +89,18 @@ class DbCore implements DbInterface
      */
     protected $joinNodes = [];
 
+    /**
+     * @var array FROM/JOIN 已声明的表别名集合（别名 => true），
+     * 供 join() 原生 ON 条件补表前缀时排除别名引用
+     */
+    protected $tableAliases = [];
+
+    /**
+     * @var array 表名 => 别名（仅显式取了别名的表才记录）。
+     * SQL 里表一旦取了别名就只认别名，原生 ON 引用其表名时须替换为别名
+     */
+    protected $tableAliasOf = [];
+
     // 存储临时更新数据，用于getSql()方法
     protected $_updateData = [];
     
@@ -335,9 +347,15 @@ class DbCore implements DbInterface
     {
         $tables = is_array($table) ? $table : explode(',', $table);
 
+        // FROM 重新定义，别名映射随之重建（join() 之后才设置的别名无效属预期：
+        // ON 条件在 join() 调用时已即时完成前缀替换）
+        $this->tableAliases = [];
+        $this->tableAliasOf = [];
+
         $parts = [];
         foreach ($tables as $t) {
-            // 逐个校验表名（支持别名），防止表名注入
+            // 记录别名（供原生 ON 条件补前缀时判断），再逐个校验表名（支持别名），防止表名注入
+            $this->collectTableAlias($t);
             $parts[] = $this->parseTable($t);
         }
         $this->from = implode(', ', $parts);
@@ -520,6 +538,9 @@ class DbCore implements DbInterface
         }
         $type = $type === '' ? '' : $type . ' ';
 
+        // 记录本表别名（供原生 ON 条件补表前缀时判断）
+        $this->collectTableAlias($table);
+
         // 表名校验（支持别名）
         $table = $this->parseTable($table);
 
@@ -534,6 +555,10 @@ class DbCore implements DbInterface
                 : $this->validateIdentifier($field1, true) . ' ' . $operator . ' ' . $this->validateIdentifier($field2, true);
         }
 
+        // ON 条件里的表名统一补前缀（别名/已带前缀/库名限定除外），
+        // 修掉原生 ON 写法表名裸奔导致查询失败的问题
+        $on = $this->applyTablePrefix($on);
+
         $this->join = (is_null($this->join))
             ? ' ' . $type . 'JOIN' . ' ' . $table . ' ON ' . $on
             : $this->join . ' ' . $type . 'JOIN' . ' ' . $table . ' ON ' . $on;
@@ -544,7 +569,7 @@ class DbCore implements DbInterface
     /**
      * INNER JOIN 连接（join() 的变体）
      */
-    public function innerJoin($table, $field1, $operator = '', $field2 = '')
+    public function innerJoin($table, $field1, $operator = null, $field2 = null)
     {
         return $this->join($table, $field1, $operator, $field2, 'INNER ');
     }
@@ -552,7 +577,7 @@ class DbCore implements DbInterface
     /**
      * LEFT JOIN 连接（join() 的变体）
      */
-    public function leftJoin($table, $field1, $operator = '', $field2 = '')
+    public function leftJoin($table, $field1, $operator = null, $field2 = null)
     {
         return $this->join($table, $field1, $operator, $field2, 'LEFT ');
     }
@@ -560,7 +585,7 @@ class DbCore implements DbInterface
     /**
      * RIGHT JOIN 连接（join() 的变体）
      */
-    public function rightJoin($table, $field1, $operator = '', $field2 = '')
+    public function rightJoin($table, $field1, $operator = null, $field2 = null)
     {
         return $this->join($table, $field1, $operator, $field2, 'RIGHT ');
     }
@@ -568,7 +593,7 @@ class DbCore implements DbInterface
     /**
      * FULL OUTER JOIN 连接（join() 的变体）
      */
-    public function fullOuterJoin($table, $field1, $operator = '', $field2 = '')
+    public function fullOuterJoin($table, $field1, $operator = null, $field2 = null)
     {
         return $this->join($table, $field1, $operator, $field2, 'FULL OUTER ');
     }
@@ -576,7 +601,7 @@ class DbCore implements DbInterface
     /**
      * LEFT OUTER JOIN 连接（join() 的变体）
      */
-    public function leftOuterJoin($table, $field1, $operator = '', $field2 = '')
+    public function leftOuterJoin($table, $field1, $operator = null, $field2 = null)
     {
         return $this->join($table, $field1, $operator, $field2, 'LEFT OUTER ');
     }
@@ -584,7 +609,7 @@ class DbCore implements DbInterface
     /**
      * RIGHT OUTER JOIN 连接（join() 的变体）
      */
-    public function rightOuterJoin($table, $field1, $operator = '', $field2 = '')
+    public function rightOuterJoin($table, $field1, $operator = null, $field2 = null)
     {
         return $this->join($table, $field1, $operator, $field2, 'RIGHT OUTER ');
     }
@@ -2542,6 +2567,74 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 记录 FROM/JOIN 表的别名声明（'users u' / 'users AS u'）
+     *
+     * - tableAliases：别名集合，原生 ON 条件里的别名引用不做前缀替换；
+     * - tableAliasOf：表名 => 别名，表一旦取了别名 SQL 就只认别名，
+     *   原生 ON 引用其原名时须替换为别名而不是补前缀。
+     *
+     * @param string $table 表名（可能带别名）
+     * @return void
+     */
+    protected function collectTableAlias($table)
+    {
+        if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)$/i', trim((string)$table), $m)) {
+            $this->tableAliases[$m[2]] = true;
+            $this->tableAliasOf[$m[1]] = $m[2];
+        }
+    }
+
+    /**
+     * 原生 ON 条件里的表名统一补前缀
+     *
+     * join() 的原生 ON 写法（如 'user.id = article.user_id'）原先原样拼进 SQL，
+     * 表名不带前缀导致查询失败。替换规则：
+     *   - 引号内的字符串（'v1.2'）与反引号标识符原样保留，不做替换；
+     *   - 三段式库名限定（db.tbl.col）视为跨库引用，不动；
+     *   - 已带前缀（ai_user.id）与别名引用（u.id）不动；
+     *   - 引用了「带别名的表」的原名时替换为其别名（表取别名后原名失效）；
+     *   - 其余裸表名补 $this->prefix。
+     *
+     * @param string|null $condition ON 条件
+     * @return string
+     */
+    protected function applyTablePrefix($condition)
+    {
+        $condition = (string)$condition;
+        if ($this->prefix === '' || $condition === '') {
+            return $condition;
+        }
+
+        // 按引号切段（PREG_SPLIT_DELIM_CAPTURE 保留引号段），只处理引号外文本
+        $segments = preg_split('/(\'[^\']*\'|"[^"]*")/', $condition, -1, PREG_SPLIT_DELIM_CAPTURE);
+        foreach ($segments as $i => $seg) {
+            if ($i % 2 === 1) {
+                continue; // 奇数位是引号段，原样保留
+            }
+            $segments[$i] = preg_replace_callback(
+                // 第二段后的否定前瞻必须允许吞掉部分字面量回溯：(?!\s*\.) 会被
+                // 「logs 回退成 log」绕过（db.tbl.col 被误判成 db.tbl 段），故写成
+                // (?![A-Za-z0-9_]*\s*\.)，任何截断位置再接 . 都拒绝
+                '/(?<![\w$`\'.])([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*(\*|[A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_]*\s*\.)/',
+                function ($m) {
+                    $tbl = $m[1];
+                    if (isset($this->tableAliasOf[$tbl])) {
+                        // 带别名的表只能用别名引用：原名替换为别名
+                        return $this->tableAliasOf[$tbl] . '.' . $m[2];
+                    }
+                    if (isset($this->tableAliases[$tbl]) || strpos($tbl, $this->prefix) === 0) {
+                        return $m[0];
+                    }
+                    return $this->prefix . $m[0];
+                },
+                $seg
+            );
+        }
+
+        return implode('', $segments);
+    }
+
+    /**
      * 解析表名并附加前缀，支持别名写法（'users u' 或 'users AS u'）
      *
      * @param string $table 表名
@@ -2816,6 +2909,8 @@ class DbCore implements DbInterface
         $this->subqueryBindingsCount = 0; // joinNode 前置复制计数
         $this->grouped = false;
         $this->joinNodes = []; // 重置子节点查询配置
+        $this->tableAliases = []; // 重置别名集合（原生 ON 条件补前缀用）
+        $this->tableAliasOf = []; // 重置表名 => 别名映射
         $this->allowFullTable = false; // 全表操作确认仅对当次生效
         $this->bindings = []; // 清空绑定参数
         // 注意：不重置 numRows, insertId, query, error, result，这些是查询结果状态

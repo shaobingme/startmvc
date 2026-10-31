@@ -81,6 +81,8 @@ class Captcha
      * 渲染 PNG 并返回二进制（不输出、不设 header，便于单测 / 存文件 / 塞 Response）
      *
      * 首次调用会生成验证码并写入会话；同一实例重复调用则重绘同一张图。
+     * 跨实例亦然：会话里已有未过期、未作废的验证码时沿用同一答案重绘
+     * （防覆盖正在作答的题），需要主动换题走 refresh()。
      *
      * @return string
      * @throws \RuntimeException 字体不可用时抛出
@@ -189,14 +191,46 @@ class Captcha
         Session::delete($key);
     }
 
+    /**
+     * 强制换一题：作废当前会话验证码，下次 render() 生成新题
+     *
+     * 出图被重复请求时类内会沿用旧题（防止覆盖用户正在作答的题，见 generate()），
+     * 「换一张」功能须显式调用本方法。等价于 clear($key) 后再 render()。
+     *
+     * @return $this
+     */
+    public function refresh()
+    {
+        self::clear($this->sessionKey);
+        $this->code = '';
+        return $this;
+    }
+
     /* ---------- 内部 ---------- */
 
     /**
-     * 生成验证码并写入会话
+     * 生成验证码并写入会话（已有未作废旧题时沿用旧答案，不换题）
+     *
+     * 会话里已存在未过期、未达尝试上限的验证码时直接沿用其答案重绘：
+     * 浏览器重复取图、表单校验失败后重绘页面、双开标签页共享会话等场景
+     * 都会触发二次出图，若每次都出新题，会把用户正在作答的题覆盖掉
+     * （看到的图和会话里的答案对不上，怎么输都错）。
+     *
      * @return void
      */
     protected function generate()
     {
+        $rec = Session::get($this->sessionKey);
+        if (is_array($rec) && !empty($rec['code'])) {
+            $expired = !empty($rec['expire']) && time() - (int)($rec['time'] ?? 0) > (int)$rec['expire'];
+            $max     = (int)($rec['max'] ?? 0);
+            $tries   = (int)($rec['tries'] ?? 0);
+            if (!$expired && !($max > 0 && $tries >= $max)) {
+                $this->code = (string)$rec['code'];
+                return;
+            }
+        }
+
         $max  = strlen($this->charset) - 1;
         $code = '';
         for ($i = 0; $i < $this->codelen; $i++) {
