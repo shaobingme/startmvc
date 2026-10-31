@@ -27,29 +27,4 @@ return [
     // 可信代理IP列表：仅当 REMOTE_ADDR 命中此列表时才信任 X-Forwarded-For（防止伪造IP）
     // 支持精确IP和IPv4 CIDR，如 ['127.0.0.1', '10.0.0.0/8', '172.16.0.0/12']
     'trusted_proxies' => [],
-    
-    // Session安全配置
-    'session' => [
-        'cookie_httponly' => true,       // 防止JavaScript访问Cookie
-        'cookie_secure' => 'auto',       // Cookie仅通过HTTPS传输：true强制开启 / false关闭 / 'auto'自动检测HTTPS
-        'cookie_samesite' => 'Lax',      // 防CSRF：Lax / Strict / None（None必须配合secure）
-        'use_only_cookies' => true,      // 只使用Cookie存储会话ID
-        'cookie_lifetime' => 7200,       // 会话Cookie生存时间（秒）
-        'gc_maxlifetime' => 7200,        // 垃圾回收时间（秒）
-    ],
-    // Cookie安全配置（Cookie::set/delete 的默认安全策略，可被调用参数覆盖）
-    'cookie' => [
-        'cookie_secure' => 'auto',       // Cookie仅通过HTTPS传输：true强制开启 / false关闭 / 'auto'自动检测HTTPS
-        'cookie_samesite' => 'Lax',      // 防CSRF：Lax / Strict / None（None必须配合secure）
-    ],
-    // CSRF 防护配置
-    'csrf' => [
-        'token_lifetime' => 3600,        // Token有效期（秒）
-        'token_name' => 'csrf_token',    // Token字段名
-        'auto_delete' => false,          // 验证后是否自动删除（false=可重复使用，true=一次性）
-        'exclude' => [                   // 无需校验的路径（不含首尾斜杠，支持 * 通配符），如支付回调、开放API
-            // 'api/webhook',
-            // 'api/open/*',
-        ],
-    ],
 ];

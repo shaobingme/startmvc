@@ -118,8 +118,7 @@ class Cookie
      */
     private static function send($key, $val, $options = [])
     {
-        $config = Config::load('common');
-        $cookieConfig = is_array($config['cookie'] ?? null) ? $config['cookie'] : [];
+        $cookieConfig = Config::load('cookie') ?: [];
 
         $expire = isset($options['expire']) ? $options['expire'] : 0;
         $path = isset($options['path']) ? $options['path'] : '/';

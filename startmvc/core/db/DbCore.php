@@ -202,7 +202,7 @@ class DbCore implements DbInterface
     public static function getInstance($config = null)
     {
         if ($config === null) {
-            $config = include CONFIG_PATH . '/database.php';
+            $config = \startmvc\core\Config::load('database');
             $config = $config['connections'][$config['driver']];
         }
 

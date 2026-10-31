@@ -57,7 +57,7 @@ class Db
         if (!isset(static::$instances[$configKey])) {
             if (empty($config)) {
                 // 使用默认配置
-                $defaultConfig = include CONFIG_PATH . '/database.php';
+                $defaultConfig = Config::load('database');
                 if (isset($defaultConfig['driver']) && $defaultConfig['driver'] !== '') {
                     $config = $defaultConfig['connections'][$defaultConfig['driver']];
                 } else {

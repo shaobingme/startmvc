@@ -140,9 +140,8 @@ class Session
     public static function start()
     {
         if (session_status() === PHP_SESSION_NONE) {
-            // 加载会话安全配置
-            $config = Config::load('common');
-            $sessionConfig = $config['session'] ?? [];
+            // 加载会话安全配置（config/session.php）
+            $sessionConfig = Config::load('session') ?: [];
             
             // 应用会话配置
             if (!empty($sessionConfig)) {
