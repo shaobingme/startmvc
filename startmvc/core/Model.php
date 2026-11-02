@@ -966,8 +966,9 @@ abstract class Model
 			if (is_numeric($limit)) {
 				$query->limit($limit);
 			} elseif (is_string($limit) && strpos($limit, ',') !== false) {
+				// 入参是 MySQL 原生顺序的 "偏移, 行数"，拆开后分别设置
 				list($offset, $rows) = explode(',', $limit);
-				$query->limit($rows, $offset);
+				$query->limit($rows)->offset($offset);
 			}
 		}
 
@@ -994,13 +995,13 @@ abstract class Model
 	/**
 	 * 分页查询方法（应用软删除范围、类型转换与关联装载）
 	 *
+	 * @param int $page 当前页码（从 1 开始）
 	 * @param int $pageSize 每页记录数
-	 * @param int $currentPage 当前页码
 	 * @param mixed $where 查询条件
 	 * @param string $order 排序方式
 	 * @return array 包含数据和分页信息的数组
 	 */
-	public function paginate($pageSize = 10, $currentPage = 1, $where = [], $order = '')
+	public function paginate($page = 1, $pageSize = 10, $where = [], $order = '')
 	{
 		// 查询总记录数
 		$countQuery = $this->newQuery();
@@ -1011,7 +1012,7 @@ abstract class Model
 		$totalPages = $pageSize > 0 ? (int)ceil($total / $pageSize) : 0;
 
 		// 确保当前页码有效
-		$currentPage = max(1, min($totalPages, $currentPage));
+		$page = max(1, min($totalPages, $page));
 
 		// 查询当前页数据
 		$query = $this->newQuery();
@@ -1020,16 +1021,16 @@ abstract class Model
 		if (!empty($order)) {
 			$query->order($order);
 		}
-		$query->page($pageSize, $currentPage);
+		$query->page($page, $pageSize);
 
 		return [
 			'data' => $this->processRows($query->get()),
 			'pagination' => [
 				'total' => $total,
 				'per_page' => $pageSize,
-				'current_page' => $currentPage,
+				'current_page' => $page,
 				'total_pages' => $totalPages,
-				'has_more' => $currentPage < $totalPages
+				'has_more' => $page < $totalPages
 			]
 		];
 	}

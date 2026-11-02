@@ -14,7 +14,7 @@ namespace startmvc\core;
  * 分页 HTML 渲染器
  *
  * 只负责把「记录数 / 每页条数 / 当前页」渲染成页码链接，不负责取数。
- * 取数请用 Db::table('t')->page($pageSize, $page) 或 Model::paginate()。
+ * 取数请用 Db::table('t')->page($page, $pageSize) 或 Model::paginate()。
  *
  * 配置读取顺序（后者覆盖前者）：
  *   1. 类内置默认值 $defaults

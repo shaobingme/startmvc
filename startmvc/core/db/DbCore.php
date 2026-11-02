@@ -1238,21 +1238,29 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 设置查询结果的LIMIT
-     * 
-     * @param int      $limit 限制数量
-     * @param int|null $limitEnd 结束位置
+     * 设置查询结果的行数
+     *
+     * 只接受「行数」一个参数。分页请用 page($page, $perPage)，
+     * 或链式 ->limit($rows)->offset($offset)。
+     *
+     * @param int $rows 返回的最大行数
      *
      * @return $this
+     * @throws \InvalidArgumentException 传入第二个参数时
      */
-    public function limit($limit, $limitEnd = null)
+    public function limit($rows)
     {
-        // 强制整型，防止LIMIT子句注入（LIMIT无法使用占位符绑定）
-        $limit = max(0, (int)$limit);
+        // 老版本的 limit($a, $b) 生成 "LIMIT $a, $b"（MySQL 的「偏移, 行数」顺序），
+        // 和常见 ORM 的「行数, 偏移」正好相反，极易写反且第一页静默返回空集。
+        // PHP 对用户函数的多余实参不报错，这里必须主动拦下，否则会静默退化成单参。
+        if (func_num_args() > 1) {
+            throw new \InvalidArgumentException(
+                'limit() 只接受行数。分页请用 page($page, $perPage)，或 ->limit($rows)->offset($offset)'
+            );
+        }
 
-        $this->limit = !is_null($limitEnd)
-            ? $limit . ', ' . max(0, (int)$limitEnd)
-            : $limit;
+        // 强制整型，防止LIMIT子句注入（LIMIT无法使用占位符绑定）
+        $this->limit = max(0, (int)$rows);
 
         return $this;
     }
@@ -1273,17 +1281,17 @@ class DbCore implements DbInterface
 
     /**
      * 设置分页
-     * 
+     *
+     * @param int $page 页码（从 1 开始）
      * @param int $perPage 每页记录数
-     * @param int $page 页码
      *
      * @return $this
      */
-    public function page($perPage, $page)
+    public function page($page, $perPage)
     {
         // 强制整型并保证下限，防止LIMIT注入与非法分页参数
-        $perPage = max(1, (int)$perPage);
         $page = max(1, (int)$page);
+        $perPage = max(1, (int)$perPage);
 
         $this->limit = $perPage;
         $this->offset = ($page - 1) * $perPage;
@@ -1658,12 +1666,17 @@ class DbCore implements DbInterface
             $query .= ' ORDER BY ' . $this->orderBy;
         }
 
-        if (!is_null($this->limit)) {
-            $query .= ' LIMIT ' . $this->limit;
-        }
+        $hasLimit = !is_null($this->limit);
+        $hasOffset = !is_null($this->offset);
 
-        if (!is_null($this->offset)) {
-            $query .= ' OFFSET ' . $this->offset;
+        // MySQL 不支持「只有 OFFSET 没有 LIMIT」（会报 1064 语法错误），
+        // 此时用最大无符号 BIGINT 占位，语义等价于「不限行数」
+        if ($hasLimit || $hasOffset) {
+            $query .= ' LIMIT ' . ($hasLimit ? $this->limit : '18446744073709551615');
+
+            if ($hasOffset) {
+                $query .= ' OFFSET ' . $this->offset;
+            }
         }
 
         return $query;
