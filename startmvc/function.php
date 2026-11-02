@@ -477,12 +477,18 @@ function db($table = '', $config = [])
  * 特意不加实例缓存：未做 singleton 绑定时容器每次返回新实例，
  * 避免 Model 查询状态（where 条件等）在多次调用间串味泄漏。
  *
- * 用法：
- *   model('user')                  当前模块的 UserModel（CLI 下回退 default_module 配置）
- *   model('user', 'admin')         指定 admin 模块的 UserModel
- *   model('user')->where('id', 1)->find()
+ * 名称按「短名」解析，Model 后缀由本函数追加；已带后缀则不再重复追加
+ * （与 make:model 的宽容度一致：'UserModel' 与 'User' 等价，不会拼成 UserModelModel）。
+ * 名称区分大小写，且必须与类名一致：'User' 对应 app\{模块}\model\UserModel.php，
+ * 写成 'user' 会拼出 userModel.php，在 Linux 下找不到文件（自动加载按类名逐字映射文件名）。
  *
- * @param string $name   模型名（不带 Model 后缀），如 'user' 对应 UserModel 类
+ * 用法：
+ *   model('User')                  当前模块的 UserModel（CLI 下回退 default_module 配置）
+ *   model('User', 'admin')         指定 admin 模块的 UserModel
+ *   model('UserModel')             带后缀写法，与 model('User') 等价
+ *   model('User')->where('id', 1)->find()
+ *
+ * @param string $name   模型名（默认短名，如 'User' 对应 UserModel 类；带 Model 后缀亦可）
  * @param string $module 模块名，缺省取当前路由上下文模块
  * @return object 模型实例
  * @throws \ReflectionException 模型类不存在时由容器抛出
@@ -490,7 +496,9 @@ function db($table = '', $config = [])
 function model($name, $module = null)
 {
     $module = $module ?: \startmvc\core\Request::currentRoute('module', config('default_module') ?: 'home');
-    return \startmvc\core\Loader::getInstance(APP_NAMESPACE . '\\' . $module . '\\model\\' . $name . 'Model');
+    // 已带 Model 后缀则不再追加，与 make:model 的宽容度保持一致
+    $class = substr($name, -5) === 'Model' ? $name : $name . 'Model';
+    return \startmvc\core\Loader::getInstance(APP_NAMESPACE . '\\' . $module . '\\model\\' . $class);
 }
 
 /**
