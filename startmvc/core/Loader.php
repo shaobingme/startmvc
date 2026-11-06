@@ -23,6 +23,14 @@ class Loader
 		try {
 			// 控制器实例化走容器，构造函数中的类类型依赖会被自动递归解析
 			$instance = Container::getInstance()->make($controller);
+		} catch (HttpResponseException $e) {
+			// 响应异常属于「控制流」而非「实例化失败」：构造函数 / _initialize 中调用
+			// redirect()、json()、success()、error() 时（典型场景是基类登录校验），
+			// 必须原样上抛，由 App::run 统一发送，不得在此包装成普通异常
+			throw $e;
+		} catch (HttpException $e) {
+			// abort() 同理：保留状态码，否则会被降级成 500
+			throw $e;
 		} catch (\Exception $e) {
 			throw new \Exception("控制器实例化失败：" . $e->getMessage(), $e->getCode(), $e);
 		}
