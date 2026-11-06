@@ -2028,6 +2028,9 @@ class DbCore implements DbInterface
      * 此时 $eventDepth 已大于 0，直接跳过广播，从而避免无限递归。
      * 一次顶层写入只广播一次，嵌套写入对监听器不可见。
      *
+     * 结果状态隔离：监听器自己的写入跑在同一个共享实例上，会覆盖 insertId /
+     * numRows / query 等结果状态；广播前后统一存取，保证外层写入的返回值不受影响。
+     *
      * @param string $table 不带表前缀的逻辑表名
      * @param string $action insert|update|delete|truncate|drop
      * @param int    $affected 影响行数（DDL 恒为 0）
@@ -2044,6 +2047,15 @@ class DbCore implements DbInterface
             return;
         }
 
+        // 监听器通常会在里面写审计表，那些写入跑在同一个共享实例上，会把结果状态
+        // （insertId/numRows/query/error/result）覆盖成监听器那笔的值——insert() 的
+        // 返回值、numRows()、getQuery() 都会因此串味。先存后还，让外层写入的结果说话。
+        $numRows = $this->numRows;
+        $insertId = $this->insertId;
+        $query = $this->query;
+        $error = $this->error;
+        $result = $this->result;
+
         self::$eventDepth++;
         try {
             Event::fire('db.changed', [
@@ -2053,6 +2065,13 @@ class DbCore implements DbInterface
             ]);
         } finally {
             self::$eventDepth--;
+
+            // 监听器抛异常也要还，否则状态永远停在监听器那笔查询上
+            $this->numRows = $numRows;
+            $this->insertId = $insertId;
+            $this->query = $query;
+            $this->error = $error;
+            $this->result = $result;
         }
     }
 
