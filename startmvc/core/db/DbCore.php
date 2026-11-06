@@ -2448,99 +2448,103 @@ class DbCore implements DbInterface
             return $this;
         }
 
-        // 模式二：执行构建器生成的SQL（真预处理）
-        $this->query = preg_replace('/\s\s+|\t\t+/', ' ', trim($query));
+        try {
+            // 模式二：执行构建器生成的SQL（真预处理）
+            $this->query = preg_replace('/\s\s+|\t\t+/', ' ', trim($query));
 
-        // 判断是否为返回结果集的语句
-        $isSelect = false;
-        foreach (['select', 'show', 'describe', 'desc', 'explain', 'optimize', 'check', 'repair', 'checksum', 'analyze'] as $value) {
-            if (stripos($this->query, $value) === 0) {
-                $isSelect = true;
-                break;
-            }
-        }
-
-        $type = $this->getFetchType($type);
-
-        // 查询缓存：key 必须包含绑定参数，否则不同参数会命中同一缓存
-        $cacheKey = $this->query . '|' . serialize($this->bindings);
-        $cache = false;
-        if ($isSelect && !is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
-            $cache = $this->cache->getCache($cacheKey, true);
-        }
-
-        if ($cache !== false && $cache !== null) {
-            // 缓存命中
-            $this->result = $cache;
-            $this->numRows = is_array($this->result) ? count($this->result) : ($this->result === '' ? 0 : 1);
-
-            $currentJoinNodes = $this->joinNodes;
-            if (!empty($currentJoinNodes) && is_array($this->result)) {
-                $this->result = $this->nodeParser($this->result);
-            }
-        } else {
-            // 真预处理执行
-            try {
-                $stmt = $this->pdo->prepare($this->query);
-                $this->bindValues($stmt);
-                $stmt->execute();
-            } catch (PDOException $e) {
-                $this->cache = null;
-                $this->numRows = 0;
-                $this->error = $e->getMessage();
-                $this->error();
-            }
-
-            if ($isSelect) {
-                if ($type === PDO::FETCH_CLASS) {
-                    $stmt->setFetchMode($type, $argument);
-                } else {
-                    $stmt->setFetchMode($type);
+            // 判断是否为返回结果集的语句
+            $isSelect = false;
+            foreach (['select', 'show', 'describe', 'desc', 'explain', 'optimize', 'check', 'repair', 'checksum', 'analyze'] as $value) {
+                if (stripos($this->query, $value) === 0) {
+                    $isSelect = true;
+                    break;
                 }
-                $this->result = $all ? $stmt->fetchAll() : $stmt->fetch();
+            }
 
-                // 正确设置numRows - 对于SELECT查询，使用结果数量
-                if ($this->result !== false) {
-                    if ($all && is_array($this->result)) {
-                        $this->numRows = count($this->result);
-                    } else if (!$all && $this->result !== false) {
-                        $this->numRows = 1;
-                    } else {
-                        $this->numRows = 0;
-                    }
-                } else {
-                    $this->numRows = 0;
-                }
+            $type = $this->getFetchType($type);
 
-                // 处理子节点查询结果
+            // 查询缓存：key 必须包含绑定参数，否则不同参数会命中同一缓存
+            $cacheKey = $this->query . '|' . serialize($this->bindings);
+            $cache = false;
+            if ($isSelect && !is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
+                $cache = $this->cache->getCache($cacheKey, true);
+            }
+
+            if ($cache !== false && $cache !== null) {
+                // 缓存命中
+                $this->result = $cache;
+                $this->numRows = is_array($this->result) ? count($this->result) : ($this->result === '' ? 0 : 1);
+
                 $currentJoinNodes = $this->joinNodes;
                 if (!empty($currentJoinNodes) && is_array($this->result)) {
                     $this->result = $this->nodeParser($this->result);
                 }
-
-                if (!is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
-                    $this->cache->setCache($cacheKey, $this->result);
-                }
             } else {
-                // 非SELECT查询（INSERT、UPDATE、DELETE等），rowCount()返回影响行数
-                $this->result = $stmt->rowCount();
-                $this->numRows = $this->result;
+                // 真预处理执行
+                try {
+                    $stmt = $this->pdo->prepare($this->query);
+                    $this->bindValues($stmt);
+                    $stmt->execute();
+                } catch (PDOException $e) {
+                    $this->cache = null;
+                    $this->numRows = 0;
+                    $this->error = $e->getMessage();
+                    $this->error();
+                }
+
+                if ($isSelect) {
+                    if ($type === PDO::FETCH_CLASS) {
+                        $stmt->setFetchMode($type, $argument);
+                    } else {
+                        $stmt->setFetchMode($type);
+                    }
+                    $this->result = $all ? $stmt->fetchAll() : $stmt->fetch();
+
+                    // 正确设置numRows - 对于SELECT查询，使用结果数量
+                    if ($this->result !== false) {
+                        if ($all && is_array($this->result)) {
+                            $this->numRows = count($this->result);
+                        } else if (!$all && $this->result !== false) {
+                            $this->numRows = 1;
+                        } else {
+                            $this->numRows = 0;
+                        }
+                    } else {
+                        $this->numRows = 0;
+                    }
+
+                    // 处理子节点查询结果
+                    $currentJoinNodes = $this->joinNodes;
+                    if (!empty($currentJoinNodes) && is_array($this->result)) {
+                        $this->result = $this->nodeParser($this->result);
+                    }
+
+                    if (!is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
+                        $this->cache->setCache($cacheKey, $this->result);
+                    }
+                } else {
+                    // 非SELECT查询（INSERT、UPDATE、DELETE等），rowCount()返回影响行数
+                    $this->result = $stmt->rowCount();
+                    $this->numRows = $this->result;
+                }
             }
+
+            $this->cache = null;
+
+            // 计算执行时间并记录SQL（日志记录插值后的可读SQL）
+            $executionTime = microtime(true) - $startTime;
+            self::logSql($this->interpolateQuery(), $this->bindings, $executionTime);
+
+            $this->queryCount++;
+
+            return $this->result;
+        } finally {
+            // 执行结束（含异常路径）统一清理构建状态：一次 SQL 错误后若残留
+            // from/where/bindings，同一连接上后续所有查询都会跟着失败（catch 里的
+            // error() 直接抛出，函数尾部的清理语句永远走不到，所以必须放 finally）。
+            // 注意：只清构建状态，保留结果状态（numRows, insertId, query, error, result）
+            $this->reset();
         }
-
-        $this->cache = null;
-
-        // 计算执行时间并记录SQL（日志记录插值后的可读SQL）
-        $executionTime = microtime(true) - $startTime;
-        self::logSql($this->interpolateQuery(), $this->bindings, $executionTime);
-
-        $this->queryCount++;
-
-        // 自动重置查询构建器状态，防止数据污染（含绑定参数）
-        // 注意：保留查询结果状态（numRows, insertId, query, error, result）
-        $this->reset();
-
-        return $this->result;
     }
 
     /**
