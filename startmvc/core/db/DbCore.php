@@ -1961,12 +1961,26 @@ class DbCore implements DbInterface
     /**
      * 获取当前构建的SQL语句而不执行
      *
-     * @return $this
+     * 返回的是一份快照（clone）：标志只挂在副本上，共享实例当场交还干净状态。
+     * 这样「取了 SQL 却没链执行器」不会把 where/bindings 留给下一次查询——
+     * 标志本身属于构建状态，跨查询残留会让下一个 insert/update 直接返回 SQL 字符串
+     * 而不执行（静默丢写入）。
+     *
+     * 快照与共享实例共用同一个 PDO 句柄；取 SQL 的路径在执行器里先命中标志、
+     * 不会碰连接，所以快照不会额外开连接。
+     *
+     * @return static
      */
     public function getSql()
     {
-        $this->_returnSql = true;
-        return $this;
+        $snapshot = clone $this;
+        $snapshot->_returnSql = true;
+
+        // 构建状态已交给快照，共享实例不能再留着（否则下一次查询会带着残留的
+        // where/bindings，轻则条件错位，重则绑定数与占位符对不上直接报错）
+        $this->reset();
+
+        return $snapshot;
     }
 
     /**
@@ -2930,6 +2944,7 @@ class DbCore implements DbInterface
         $this->tableAliasOf = []; // 重置表名 => 别名映射
         $this->allowFullTable = false; // 全表操作确认仅对当次生效
         $this->bindings = []; // 清空绑定参数
+        $this->_returnSql = false; // 「只取 SQL 不执行」属于构建状态，不跨查询保留
         // 注意：不重置 numRows, insertId, query, error, result，这些是查询结果状态
     }
 
