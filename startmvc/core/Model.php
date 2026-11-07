@@ -629,10 +629,35 @@ abstract class Model
 	/**
 	 * 插入数据（三大自动管道 + 自动补充创建/更新时间戳）
 	 *
-	 * @param array $data 数据
-	 * @return int|bool 插入ID或结果；管道验证失败返回 false（getError() 取错误）
+	 * @param array $data 单条（一维）或批量（二维）数据
+	 * @return int|bool 受影响行数；管道验证失败或被事件否决返回 false（getError() 取错误）
 	 */
 	public function insert($data = [])
+	{
+		return $this->writeInsert($data, false);
+	}
+
+	/**
+	 * 插入数据并返回自增主键（三大自动管道 + 自动补充创建/更新时间戳）
+	 *
+	 * 批量插入时 MySQL 只返回首行的自增值，需要行数请用 insert()。
+	 *
+	 * @param array $data 单条数据
+	 * @return int|bool 自增主键；管道验证失败或被事件否决返回 false（getError() 取错误）
+	 */
+	public function insertGetId($data = [])
+	{
+		return $this->writeInsert($data, true);
+	}
+
+	/**
+	 * 插入的实际实现
+	 *
+	 * @param array $data 数据
+	 * @param bool  $getId 返回自增主键（false 则返回受影响行数）
+	 * @return int|bool
+	 */
+	protected function writeInsert($data, $getId)
 	{
 		if (!empty($data)) {
 			$this->data = $data;
@@ -675,9 +700,13 @@ abstract class Model
 			$this->data = $event['data'];
 		}
 
-		$result = Db::table($this->table)->insert($this->data);
+		$query = Db::table($this->table);
+		$result = $getId
+			? $query->insertGetId($this->data)
+			: $query->insert($this->data);
 
-		// 后置事件：批量插入只有首个自增ID，result 语义为 insertId
+		// 后置事件：result 在 insert() 下为行数、insertGetId() 下为主键；
+		// 批量插入时 MySQL 只给首个自增值，取值语义为「首行」
 		$this->fireAfterEvent('insert', [
 			'data'   => $this->data,
 			'before' => [],
@@ -752,12 +781,12 @@ abstract class Model
 			return $this->update($updateData, $id);
 		}
 
-		// 无主键，执行插入并回写自增ID
-		$result = $this->insert();
-		if ($result) {
-			$this->data[$this->pk] = $result;
-		}
-		return $result;
+        // 无主键，执行插入并回写自增ID（insert() 现在返回行数，主键必须用 insertGetId）
+        $id = $this->insertGetId();
+        if ($id !== false) {
+            $this->data[$this->pk] = $id;
+        }
+        return $id;
 	}
 
 	/**

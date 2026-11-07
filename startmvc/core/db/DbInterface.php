@@ -53,12 +53,24 @@ interface DbInterface
     public function update(array $data, $type = false);
 
     /**
-     * @param array $data
-     * @param bool  $type
+     * 插入数据
      *
-     * @return mixed
+     * @param array  $data 单条（一维）或批量（二维）数据
+     * @param string $type 插入类型：INSERT | IGNORE | REPLACE | DUPLICATE
+     *
+     * @return int 受影响行数
      */
-    public function insert(array $data, $type = false);
+    public function insert(array $data, $type = 'INSERT');
+
+    /**
+     * 插入数据并返回自增主键
+     *
+     * @param array  $data 单条（一维）或批量（二维）数据
+     * @param string $type 插入类型：INSERT | IGNORE | REPLACE | DUPLICATE
+     *
+     * @return int 自增主键
+     */
+    public function insertGetId(array $data, $type = 'INSERT');
 
     /**
      * @param bool $type

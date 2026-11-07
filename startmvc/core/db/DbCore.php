@@ -1717,16 +1717,36 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 插入数据
-     * 
-     * @param array $data 要插入的数据
-     * @param bool|string $returnSql 是否仅返回SQL或返回类型
-     * @param string $type 插入类型：INSERT, INSERT IGNORE, REPLACE, DUPLICATE
+     * 插入数据，返回受影响行数
      *
-     * @return bool|string|int|null|$this
+     * 需要自增主键请用 insertGetId()；只想看 SQL 请用 getSql()->insert(...)。
+     *
+     * @param array  $data 单条（一维）或批量（二维）数据
+     * @param string $type 插入类型：INSERT | IGNORE | REPLACE | DUPLICATE
+     *
+     * @return int|string 受影响行数；INSERT IGNORE 被跳过时为 0（不是失败）。
+     *                    getSql() 链上返回 SQL 字符串。
+     * @throws \PDOException              SQL 执行失败
+     * @throws \InvalidArgumentException 参数非法（第二参不是插入类型，或传了第三个参数）
      */
-    public function insert(array $data, $returnSql = false, $type = 'INSERT')
+    public function insert(array $data, $type = 'INSERT')
     {
+        // 旧签名 insert($data, $returnSql, $type) 已不存在：
+        // 第三个实参会被 PHP 静默忽略，必须主动拦下
+        if (func_num_args() > 2) {
+            throw new \InvalidArgumentException(
+                'insert() 只接受 2 个参数（$data, $type），没有第三个参数。'
+            );
+        }
+
+        if (is_bool($type)) {
+            // 第二个参数是插入类型，不是布尔开关；不存在 insert($data, bool) 这种写法
+            throw new \InvalidArgumentException(
+                'insert() 没有第二个参数传布尔值的写法。第二个参数是插入类型：INSERT / IGNORE / REPLACE / DUPLICATE'
+            );
+        }
+
+        $type = $this->normalizeInsertType($type);
         $query = $this->buildInsertQuery($data, $type);
 
         // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
@@ -1735,9 +1755,9 @@ class DbCore implements DbInterface
         // 存储插入数据和查询（插值后的可读SQL），用于getSql方法
         $this->_insertData = $data;
         $this->_lastQuery = $this->interpolateQuery($query);
-        $this->_queryType = strtolower(explode(' ', $type)[0]); // insert, replace, etc.
+        $this->_queryType = $type === 'REPLACE' ? 'replace' : 'insert';
 
-        if ($returnSql === true || $this->_returnSql) {
+        if ($this->_returnSql) {
             $this->_returnSql = false;
             $displaySql = $this->interpolateQuery($query);
             $this->reset();
@@ -1745,13 +1765,69 @@ class DbCore implements DbInterface
         }
 
         $affected = $this->query($query, false);
-        if ($affected !== false) {
-            $this->insertId = $this->pdo->lastInsertId();
-            $this->dispatchChanged($table, 'insert', (int)$affected);
-            return $this->insertId();
+
+        // 失败已在 query() 内抛出异常，这里只处理成功路径
+        $this->insertId = $this->pdo->lastInsertId();
+        $this->dispatchChanged($table, 'insert', (int)$affected);
+
+        return (int)$affected;
+    }
+
+    /**
+     * 插入数据并返回自增主键
+     *
+     * 批量插入时 MySQL 只返回首行的自增值，此时语义为「首行主键」；
+     * 需要行数请用 insert() 的返回值或 numRows()。
+     *
+     * @param array  $data 单条（一维）或批量（二维）数据
+     * @param string $type 插入类型：INSERT | IGNORE | REPLACE | DUPLICATE
+     *
+     * @return int|string 自增主键；无自增列或被 IGNORE 跳过时为 0。
+     *                    getSql() 链上返回 SQL 字符串。
+     * @throws \PDOException              SQL 执行失败
+     * @throws \InvalidArgumentException 参数非法（第二参不是插入类型，或传了第三个参数）
+     */
+    public function insertGetId(array $data, $type = 'INSERT')
+    {
+        $result = $this->insert($data, $type);
+
+        // getSql() 链上 insert() 返回 SQL 字符串，原样透传
+        if (is_string($result)) {
+            return $result;
         }
 
-        return false;
+        return (int)$this->insertId;
+    }
+
+    /**
+     * 规范化插入类型
+     *
+     * 非法类型直接报错：拼错时静默按 INSERT 执行会写错数据，比抛异常危险得多。
+     *
+     * @param string $type
+     * @return string INSERT | IGNORE | REPLACE | DUPLICATE
+     * @throws \InvalidArgumentException
+     */
+    protected function normalizeInsertType($type)
+    {
+        $type = strtoupper(trim((string)$type));
+
+        // 历史写法收敛到规范值
+        $aliases = [
+            'INSERT IGNORE'    => 'IGNORE',
+            'INSERT OR IGNORE' => 'IGNORE',
+        ];
+        if (isset($aliases[$type])) {
+            $type = $aliases[$type];
+        }
+
+        if (!in_array($type, ['INSERT', 'IGNORE', 'REPLACE', 'DUPLICATE'], true)) {
+            throw new \InvalidArgumentException(
+                '不支持的插入类型：' . $type . '，可用：INSERT / IGNORE / REPLACE / DUPLICATE'
+            );
+        }
+
+        return $type;
     }
 
     /**
