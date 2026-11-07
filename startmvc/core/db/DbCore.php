@@ -345,6 +345,15 @@ class DbCore implements DbInterface
      */
     public function table($table)
     {
+        // 上一条链设过表名却没执行（漏了执行器）时，残留的 where/limit/
+        // allowFullTable 会串到下一次查询并静默改错数据，开新链前清掉。
+        // 用 from 判据而非无条件 reset：select()/where() 前置写法（doc/40 支持）
+        // 此时还没设表名，状态属于当前链；执行过的链已被 query() 的 finally
+        // 清空，from 为 null，也不会走到这里。reset() 保留结果状态。
+        if ($this->from !== null) {
+            $this->reset();
+        }
+
         $tables = is_array($table) ? $table : explode(',', $table);
 
         // FROM 重新定义，别名映射随之重建（join() 之后才设置的别名无效属预期：
@@ -1628,8 +1637,33 @@ class DbCore implements DbInterface
      * 
      * @return string 构建好的SQL语句
      */
+    /**
+     * 构建 SQL 前确认已指定表名
+     *
+     * from 为空时若继续拼 SQL，会得到 `SELECT * FROM ` 这类残缺语句，由 MySQL
+     * 报 1064；而生产环境该错误会被脱敏成「数据库操作失败」，排查时完全看不出
+     * 是漏了 table()。这里提前抛用法异常，消息直接给出修复方式。
+     *
+     * 抛出前 reset()：没有表名的链不可能有意义，直接丢弃，避免残留条件影响
+     * 调用方修正后的下一次查询。
+     *
+     * @return void
+     * @throws \LogicException
+     */
+    protected function assertTableSet()
+    {
+        if ($this->from !== null && trim((string)$this->from) !== '') {
+            return;
+        }
+
+        $this->reset();
+        throw new \LogicException("未指定查询表名：请先调用 Db::table('表名') 或 from('表名')。");
+    }
+
     protected function buildSelectQuery()
     {
+        $this->assertTableSet();
+
         // JOIN 绑定按 SQL 文本顺序合并进 $bindings：
         // joinNode 子查询占位符（如有，位于 SELECT 列表，最先出现）
         // → JOIN ON 占位符 → 主 WHERE 占位符。
@@ -1729,6 +1763,8 @@ class DbCore implements DbInterface
      */
     protected function buildInsertQuery(array $data, $type = 'INSERT')
     {
+        $this->assertTableSet();
+
         // 标准化插入类型，默认为标准INSERT
         $type = strtoupper($type);
         
@@ -1847,6 +1883,8 @@ class DbCore implements DbInterface
      */
     protected function buildUpdateQuery(array $data)
     {
+        $this->assertTableSet();
+
         $query = 'UPDATE ' . $this->from;
 
         // UPDATE ... JOIN ... ON ... SET ...：JOIN 子句位于 SET 之前，
@@ -1935,6 +1973,8 @@ class DbCore implements DbInterface
      */
     protected function buildDeleteQuery()
     {
+        $this->assertTableSet();
+
         $query = 'DELETE FROM ' . $this->from;
 
         // 安全守卫：无WHERE条件的DELETE会全表删除，必须显式确认；
