@@ -79,6 +79,16 @@ class DbCore implements DbInterface
     protected $debug = false;
 
     /**
+     * @var int SQL 日志档位：0 关闭 / 1 只记写操作 / 2 全部记录
+     */
+    protected $logSqlLevel = 2;
+
+    /**
+     * @var int SQL 日志保留上限（0 = 不限）
+     */
+    protected $logSqlMax = 1000;
+
+    /**
      * @var int 事务总数
      */
     protected $transactionCount = 0;
@@ -112,9 +122,6 @@ class DbCore implements DbInterface
     
     // 存储查询类型
     protected $_queryType = '';
-
-    // 设置返回 SQL 标志
-    protected $_returnSql = false;
 
     /**
      * @var array 预处理绑定参数（与SQL中的 ? 占位符按序对应）
@@ -191,6 +198,10 @@ class DbCore implements DbInterface
 
         // 调试模式从配置读取，默认关闭（生产环境必须保持关闭，否则SQL错误详情会泄露到页面）
         $this->debug = !empty($config['debug']);
+
+        // SQL 日志档位与上限（默认 2 / 1000，与加配置项之前的行为一致）
+        $this->logSqlLevel = isset($config['log_sql']) ? (int)$config['log_sql'] : 2;
+        $this->logSqlMax = isset($config['log_sql_max']) ? (int)$config['log_sql_max'] : 1000;
         
         // 初始化缓存目录
         if (!empty($config['cachedir'])) {
@@ -477,6 +488,33 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 构建聚合查询的 SQL（COUNT/MAX/MIN/SUM/AVG 共用）
+     *
+     * 聚合查询不需要 select、limit、offset、orderBy，这里统一清掉。
+     * 此前「只取 SQL」的分支漏清 limit，导致 getSql()->count() 显示的语句带
+     * LIMIT 而真实执行不带，快照与执行对不上。
+     *
+     * @param string $function 聚合函数名（MAX、MIN、SUM、COUNT、AVG）
+     * @param string $field 字段名
+     * @return string 带占位符的 SQL
+     */
+    protected function buildAggregateQuery($function, $field)
+    {
+        // 字段名校验（允许 COUNT(*) 的 *），防止聚合字段注入
+        if (trim((string)$field) !== '*') {
+            $field = $this->validateIdentifier($field);
+        }
+
+        $clone = clone $this;
+        $clone->select = $function . '(' . $field . ') as aggregate_value';
+        $clone->limit = null;
+        $clone->offset = null;
+        $clone->orderBy = null;
+
+        return $clone->buildSelectQuery();
+    }
+
+    /**
      * 执行聚合查询的通用方法
      * 
      * @param string $function 聚合函数名（MAX、MIN、SUM、COUNT、AVG）
@@ -485,32 +523,10 @@ class DbCore implements DbInterface
      */
     protected function executeAggregate($function, $field)
     {
-        // 字段名校验（允许 COUNT(*) 的 *），防止聚合字段注入
-        if (trim((string)$field) !== '*') {
-            $field = $this->validateIdentifier($field);
-        }
+        $query = $this->buildAggregateQuery($function, $field);
 
-        // 如果设置了返回SQL标志，构建查询并返回插值后的可读SQL
-        if ($this->_returnSql) {
-            $clone = clone $this;
-            $clone->select = $function . '(' . $field . ') as aggregate_value';
-            $query = $clone->buildSelectQuery();
-            $this->_returnSql = false;
-            $this->reset();
-            return $clone->interpolateQuery($query);
-        }
-
-        // 克隆当前查询构建器，避免污染原对象
+        // 在克隆体上执行，避免 query() 内部的 reset() 影响原构建器
         $clone = clone $this;
-
-        // 聚合查询不需要 select、limit、offset、orderBy
-        $clone->select = $function . '(' . $field . ') as aggregate_value';
-        $clone->limit = null;
-        $clone->offset = null;
-        $clone->orderBy = null;
-
-        // 构建并执行查询
-        $query = $clone->buildSelectQuery();
         $result = $clone->query($query, false);
 
         // 聚合在克隆体上执行，原构建器需同步重置并清空缓存标记，
@@ -1411,28 +1427,24 @@ class DbCore implements DbInterface
 
     /**
      * 获取多条记录
-     * 
-     * @param bool|string $returnSql 是否仅返回SQL或返回类型
-     * @param string $argument 参数（当$returnSql指定为类名时使用）
+     *
+     * @param string|null $type 返回类型（类名，走 FETCH_CLASS）；null 为关联数组
+     * @param mixed $argument 类构造参数（$type 为类名时使用）
      *
      * @return mixed 返回多条记录
+     * @throws \InvalidArgumentException get(true) 已废弃（改用 getSql()->get()）
      */
-    public function get($returnSql = null, $argument = null)
+    public function get($type = null, $argument = null)
     {
+        $this->assertNotReturnSqlFlag($type, 'get');
+
         $query = $this->buildSelectQuery();
 
-        // 存储查询（插值后的可读SQL），用于getSql方法
+        // 存储查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'select';
 
-        if ($returnSql === true || $this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
-
-        return $this->query($query, true, $returnSql, $argument);
+        return $this->query($query, true, $type, $argument);
     }
 
     /**
@@ -1532,37 +1544,33 @@ class DbCore implements DbInterface
 
     /**
      * 获取单条记录
-     * 
-     * @param bool|string $returnSql 是否仅返回SQL或返回类型
-     * @param string $argument 参数（当$returnSql指定为类名时使用）
+     *
+     * @param string|null $type 返回类型（类名，走 FETCH_CLASS）；null 为关联数组
+     * @param mixed $argument 类构造参数（$type 为类名时使用）
      *
      * @return mixed 返回单条记录
+     * @throws \InvalidArgumentException first(true) 已废弃（改用 getSql()->first()）
      */
-    public function first($returnSql = null, $argument = null)
+    public function first($type = null, $argument = null)
     {
+        $this->assertNotReturnSqlFlag($type, 'first');
+
         $this->limit(1);
         $query = $this->buildSelectQuery();
 
-        // 存储查询（插值后的可读SQL），用于getSql方法
+        // 存储查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'select';
 
-        if ($returnSql === true || $this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
-
-        return $this->query($query, false, $returnSql, $argument);
+        return $this->query($query, false, $type, $argument);
     }
 
     /**
      * first() 的别名，用于语义更清晰的单条读取
      */
-    public function one($returnSql = null, $argument = null)
+    public function one($type = null, $argument = null)
     {
-        return $this->first($returnSql, $argument);
+        return $this->first($type, $argument);
     }
 
     /**
@@ -1626,9 +1634,9 @@ class DbCore implements DbInterface
     /**
      * get() 的别名，与 one() 对称
      */
-    public function many($returnSql = null, $argument = null)
+    public function many($type = null, $argument = null)
     {
-        return $this->get($returnSql, $argument);
+        return $this->get($type, $argument);
     }
 
 
@@ -1731,38 +1739,17 @@ class DbCore implements DbInterface
      */
     public function insert(array $data, $type = 'INSERT')
     {
-        // 旧签名 insert($data, $returnSql, $type) 已不存在：
-        // 第三个实参会被 PHP 静默忽略，必须主动拦下
-        if (func_num_args() > 2) {
-            throw new \InvalidArgumentException(
-                'insert() 只接受 2 个参数（$data, $type），没有第三个参数。'
-            );
-        }
+        $type = $this->prepareInsert($type, func_num_args());
 
-        if (is_bool($type)) {
-            // 第二个参数是插入类型，不是布尔开关；不存在 insert($data, bool) 这种写法
-            throw new \InvalidArgumentException(
-                'insert() 没有第二个参数传布尔值的写法。第二个参数是插入类型：INSERT / IGNORE / REPLACE / DUPLICATE'
-            );
-        }
-
-        $type = $this->normalizeInsertType($type);
         $query = $this->buildInsertQuery($data, $type);
 
         // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
         $table = $this->rawTableName();
 
-        // 存储插入数据和查询（插值后的可读SQL），用于getSql方法
+        // 存储插入数据和查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_insertData = $data;
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = $type === 'REPLACE' ? 'replace' : 'insert';
-
-        if ($this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
 
         $affected = $this->query($query, false);
 
@@ -1797,6 +1784,38 @@ class DbCore implements DbInterface
         }
 
         return (int)$this->insertId;
+    }
+
+    /**
+     * 校验并规范化 insert() 的调用参数
+     *
+     * 抽出来是为了让 SqlSnapshot::insert() 复用同一套校验，避免两边各写一份后
+     * 慢慢跑偏。$argCount 由调用方传 func_num_args()——它必须在被调函数内部取，
+     * 传进来才能覆盖「第三个实参被 PHP 静默忽略」这种情况。
+     *
+     * @param mixed $type     插入类型
+     * @param int   $argCount 调用方收到的实参个数
+     * @return string 规范化后的插入类型
+     * @throws \InvalidArgumentException
+     */
+    protected function prepareInsert($type, $argCount)
+    {
+        // 旧签名 insert($data, $returnSql, $type) 已不存在：
+        // 第三个实参会被 PHP 静默忽略，必须主动拦下
+        if ($argCount > 2) {
+            throw new \InvalidArgumentException(
+                'insert() 只接受 2 个参数（$data, $type），没有第三个参数。'
+            );
+        }
+
+        if (is_bool($type)) {
+            // 第二个参数是插入类型，不是布尔开关；不存在 insert($data, bool) 这种写法
+            throw new \InvalidArgumentException(
+                'insert() 没有第二个参数传布尔值的写法。第二个参数是插入类型：INSERT / IGNORE / REPLACE / DUPLICATE'
+            );
+        }
+
+        return $this->normalizeInsertType($type);
     }
 
     /**
@@ -1915,30 +1934,31 @@ class DbCore implements DbInterface
 
     /**
      * 更新数据
-     * 
-     * @param array $data 要更新的数据
-     * @param bool  $returnSql 是否仅返回SQL，而不执行
      *
-     * @return mixed|string|$this
+     * @param array $data 要更新的数据
+     *
+     * @return int 影响行数
+     * @throws \InvalidArgumentException 传了第二个参数（旧的 $returnSql 开关）
      */
-    public function update(array $data, $returnSql = false)
+    public function update(array $data)
     {
+        // 旧的 update($data, true) 已删除。PHP 对用户函数的多余实参是静默忽略的，
+        // 不主动拦的话会悄悄变成真执行——本意 dry-run 却写了库。
+        if (func_num_args() > 1) {
+            throw new \InvalidArgumentException(
+                'update() 只接受 1 个参数（$data）。只看 SQL 请用 getSql()->update($data)'
+            );
+        }
+
         $query = $this->buildUpdateQuery($data);
 
         // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
         $table = $this->rawTableName();
 
-        // 存储更新数据和查询（插值后的可读SQL），用于getSql方法
+        // 存储更新数据和查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_updateData = $data;
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-
-        if ($returnSql === true || $this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
 
         $affected = $this->query($query, false);
 
@@ -2009,28 +2029,26 @@ class DbCore implements DbInterface
 
     /**
      * 删除数据
-     * 
-     * @param bool $returnSql 是否仅返回SQL，而不执行
      *
-     * @return mixed|string|$this
+     * @return int 影响行数
+     * @throws \InvalidArgumentException 传了参数（旧的 $returnSql 开关）
      */
-    public function delete($returnSql = false)
+    public function delete()
     {
+        if (func_num_args() > 0) {
+            throw new \InvalidArgumentException(
+                'delete() 不接受参数。只看 SQL 请用 getSql()->delete()'
+            );
+        }
+
         $query = $this->buildDeleteQuery();
 
         // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
         $table = $this->rawTableName();
 
-        // 存储查询（插值后的可读SQL），用于getSql方法
+        // 存储查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'delete';
-
-        if ($returnSql === true || $this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
 
         $affected = $this->query($query, false);
 
@@ -2077,26 +2095,49 @@ class DbCore implements DbInterface
     /**
      * 获取当前构建的SQL语句而不执行
      *
-     * 返回的是一份快照（clone）：标志只挂在副本上，共享实例当场交还干净状态。
-     * 这样「取了 SQL 却没链执行器」不会把 where/bindings 留给下一次查询——
-     * 标志本身属于构建状态，跨查询残留会让下一个 insert/update 直接返回 SQL 字符串
-     * 而不执行（静默丢写入）。
+     * 返回的是一个 SqlSnapshot 快照对象，必须再链一个执行器才产出 SQL 字符串：
      *
-     * 快照与共享实例共用同一个 PDO 句柄；取 SQL 的路径在执行器里先命中标志、
+     *   Db::table('users')->where('id', 1)->getSql()->first();     // SELECT ...
+     *   Db::table('users')->getSql()->insert(['name' => 'x']);     // INSERT ...
+     *   Db::table('users')->where('id', 1)->getSql()->update([…]); // UPDATE ...
+     *
+     * 快照与共享实例共用同一个 PDO 句柄；取 SQL 的路径只做字符串拼接、
      * 不会碰连接，所以快照不会额外开连接。
      *
-     * @return static
+     * 构建状态整份交给快照、共享实例当场 reset：这样「取了 SQL 却没链执行器」
+     * 不会把 where/bindings 留给下一次查询。
+     *
+     * @return SqlSnapshot
      */
     public function getSql()
     {
-        $snapshot = clone $this;
-        $snapshot->_returnSql = true;
+        $snapshot = SqlSnapshot::createFrom($this);
 
         // 构建状态已交给快照，共享实例不能再留着（否则下一次查询会带着残留的
         // where/bindings，轻则条件错位，重则绑定数与占位符对不上直接报错）
         $this->reset();
 
         return $snapshot;
+    }
+
+    /**
+     * 拦住旧的「第二参传 true 只返回 SQL」写法
+     *
+     * 这类参数已废弃。PHP 对用户函数的多余实参是静默忽略的，如果只是删掉参数，
+     * update($data, true) 会悄悄变成真执行——本意 dry-run 却写了库。必须主动抛。
+     *
+     * @param mixed  $flag   调用方传进来的开关值
+     * @param string $method 方法名（用于提示语）
+     * @return void
+     * @throws \InvalidArgumentException
+     */
+    protected function assertNotReturnSqlFlag($flag, $method)
+    {
+        if ($flag === true) {
+            throw new \InvalidArgumentException(
+                $method . '(true) 已废弃，只看 SQL 请用 getSql()->' . $method . '(...)'
+            );
+        }
     }
 
     /**
@@ -2218,11 +2259,28 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 构建表维护类语句（TRUNCATE / DROP / REPAIR / OPTIMIZE / ANALYZE / CHECK / CHECKSUM）
+     *
+     * 七个方法的 SQL 只有动词不同，统一从这里出，SqlSnapshot 直接复用，
+     * 避免「取 SQL」那条路各拼一份、将来慢慢跑偏。
+     *
+     * @param string $verb 语句动词（已含 TABLE）
+     * @return string 带表名的 SQL
+     * @throws \LogicException 未设置表名时
+     */
+    protected function buildTableMaintenanceQuery($verb)
+    {
+        $this->assertTableSet();
+
+        return $verb . ' ' . $this->from;
+    }
+
+    /**
      * 分析表，供优化器统计信息
      */
     public function analyze()
     {
-        return $this->query('ANALYZE TABLE ' . $this->from, false);
+        return $this->query($this->buildTableMaintenanceQuery('ANALYZE TABLE'), false);
     }
 
     /**
@@ -2230,7 +2288,7 @@ class DbCore implements DbInterface
      */
     public function check()
     {
-        return $this->query('CHECK TABLE ' . $this->from, false);
+        return $this->query($this->buildTableMaintenanceQuery('CHECK TABLE'), false);
     }
 
     /**
@@ -2238,7 +2296,7 @@ class DbCore implements DbInterface
      */
     public function checksum()
     {
-        return $this->query('CHECKSUM TABLE ' . $this->from, false);
+        return $this->query($this->buildTableMaintenanceQuery('CHECKSUM TABLE'), false);
     }
 
     /**
@@ -2246,7 +2304,7 @@ class DbCore implements DbInterface
      */
     public function optimize()
     {
-        return $this->query('OPTIMIZE TABLE ' . $this->from, false);
+        return $this->query($this->buildTableMaintenanceQuery('OPTIMIZE TABLE'), false);
     }
 
     /**
@@ -2254,7 +2312,7 @@ class DbCore implements DbInterface
      */
     public function repair()
     {
-        return $this->query('REPAIR TABLE ' . $this->from, false);
+        return $this->query($this->buildTableMaintenanceQuery('REPAIR TABLE'), false);
     }
 
     /**
@@ -2264,8 +2322,9 @@ class DbCore implements DbInterface
     {
         // 表名必须在执行前捕获：query() 内部会 reset() 清空 $this->from
         $table = $this->rawTableName();
+        $query = $this->buildTableMaintenanceQuery('TRUNCATE TABLE');
 
-        $result = $this->query('TRUNCATE TABLE ' . $this->from, false);
+        $result = $this->query($query, false);
 
         // DDL 的 rowCount 不可靠（恒为 0），只看执行是否成功
         if ($result !== false) {
@@ -2281,8 +2340,9 @@ class DbCore implements DbInterface
     public function drop()
     {
         $table = $this->rawTableName();
+        $query = $this->buildTableMaintenanceQuery('DROP TABLE');
 
-        $result = $this->query('DROP TABLE ' . $this->from, false);
+        $result = $this->query($query, false);
 
         if ($result !== false) {
             $this->dispatchChanged($table, 'drop', 0);
@@ -2593,7 +2653,7 @@ class DbCore implements DbInterface
             if (is_array($all)) {
                 $this->bindings = array_values($all);
             }
-            self::logSql($this->interpolateQuery($query, $this->bindings), $this->bindings, microtime(true) - $startTime);
+            $this->logSql($this->interpolateQuery($query, $this->bindings), $this->bindings, microtime(true) - $startTime);
             return $this;
         }
 
@@ -2682,7 +2742,7 @@ class DbCore implements DbInterface
 
             // 计算执行时间并记录SQL（日志记录插值后的可读SQL）
             $executionTime = microtime(true) - $startTime;
-            self::logSql($this->interpolateQuery(), $this->bindings, $executionTime);
+            $this->logSql($this->interpolateQuery(), $this->bindings, $executionTime);
 
             $this->queryCount++;
 
@@ -3079,8 +3139,23 @@ class DbCore implements DbInterface
         $this->tableAliasOf = []; // 重置表名 => 别名映射
         $this->allowFullTable = false; // 全表操作确认仅对当次生效
         $this->bindings = []; // 清空绑定参数
-        $this->_returnSql = false; // 「只取 SQL 不执行」属于构建状态，不跨查询保留
         // 注意：不重置 numRows, insertId, query, error, result，这些是查询结果状态
+    }
+
+    /**
+     * 把当前全部实例状态复制到另一个构建器（SqlSnapshot 用）
+     *
+     * 用 get_object_vars() 而不是逐个属性赋值：父类将来新增构建属性时会自动
+     * 带上，不会因为漏写一行让快照少一个 where 条件或绑定参数。
+     *
+     * @param DbCore $target 目标构建器（同类或子类）
+     * @return void
+     */
+    protected function copyStateTo(DbCore $target)
+    {
+        foreach (get_object_vars($this) as $name => $value) {
+            $target->$name = $value;
+        }
     }
 
     /**
@@ -3132,19 +3207,39 @@ class DbCore implements DbInterface
     /**
      * 记录SQL查询日志
      *
-     * @param string $sql SQL语句
+     * 受 database.log_sql 控制：0 关闭 / 1 只记写操作 / 2 全部记录（默认）。
+     * 只记写操作的档位按 SQL 首词判断，读类语句（SELECT/SHOW/EXPLAIN…）跳过。
+     * log_sql_max 限制保留条数，超出丢弃最旧的——CLI 长跑脚本里 SQL 日志是
+     * 静态数组，不设上限会一直涨。
+     *
+     * @param string $sql SQL语句（已插值）
      * @param array $params 绑定参数
-     * @param float $executionTime 执行时间（毫秒）
+     * @param float $executionTime 执行时间（秒）
      * @return void
      */
-    protected static function logSql($sql, $params = [], $executionTime = 0)
+    protected function logSql($sql, $params = [], $executionTime = 0)
     {
+        if ($this->logSqlLevel === 0) {
+            return;
+        }
+
+        // level=1：只记写操作，读类语句直接跳过
+        if ($this->logSqlLevel === 1
+            && preg_match('/^\s*(SELECT|SHOW|DESCRIBE|DESC|EXPLAIN|WITH)\b/i', (string)$sql)) {
+            return;
+        }
+
         self::$sqlLogs[] = [
             'sql' => $sql,
             'params' => $params,
             'time' => number_format($executionTime * 1000, 2) . 'ms', // 转换为毫秒
             'timestamp' => microtime(true)
         ];
+
+        // 超出上限时丢最旧的，保留最近 log_sql_max 条
+        if ($this->logSqlMax > 0 && count(self::$sqlLogs) > $this->logSqlMax) {
+            self::$sqlLogs = array_slice(self::$sqlLogs, -$this->logSqlMax);
+        }
     }
     
     /**
@@ -3238,6 +3333,38 @@ class DbCore implements DbInterface
     }
 
     /**
+     * 构建自增 / 自减 / 取反的 UPDATE 语句
+     *
+     * 三种操作只有 SET 表达式不同，统一从这里出，SqlSnapshot 直接复用。
+     * $count 在 inc()/dec() 上有 int 类型约束，直接拼进 SQL 是安全的。
+     *
+     * @param string   $column   列名
+     * @param string   $operator '+' | '-' | '!'（取反）
+     * @param int|null $count    步长（取反时为 null）
+     * @return string 带占位符的 SQL
+     * @throws \LogicException 未设置表名时
+     */
+    protected function buildCounterQuery($column, $operator, $count = null)
+    {
+        $this->assertTableSet();
+        $column = $this->validateIdentifier($column);
+
+        $query = "UPDATE {$this->from} SET {$column} = ";
+
+        if ($operator === '!') {
+            $query .= "!{$column}";
+        } else {
+            $query .= "{$column} {$operator} {$count}";
+        }
+
+        if (!is_null($this->where)) {
+            $query .= ' WHERE ' . $this->where;
+        }
+
+        return $query;
+    }
+
+    /**
      * 布尔值取反（0变1，1变0）
      * 
      * @param string $column 列名
@@ -3245,23 +3372,11 @@ class DbCore implements DbInterface
      */
     public function invert($column)
     {
-        $column = $this->validateIdentifier($column);
-        $query = "UPDATE {$this->from} SET {$column} = !{$column}";
-        
-        if (!is_null($this->where)) {
-            $query .= ' WHERE ' . $this->where;
-        }
-        
-        // 存储查询（插值后的可读SQL），用于getSql方法
+        $query = $this->buildCounterQuery($column, '!');
+
+        // 存储查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-
-        if ($this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
 
         return $this->query($query, false);
     }
@@ -3306,24 +3421,12 @@ class DbCore implements DbInterface
      */
     public function inc($column, int $count = 1)
     {
-        $column = $this->validateIdentifier($column);
         $table = $this->rawTableName();
-        $query = "UPDATE {$this->from} SET {$column} = {$column} + {$count}";
+        $query = $this->buildCounterQuery($column, '+', $count);
 
-        if (!is_null($this->where)) {
-            $query .= ' WHERE ' . $this->where;
-        }
-
-        // 存储查询（插值后的可读SQL），用于getSql方法
+        // 存储查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-
-        if ($this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
 
         $affected = $this->query($query, false);
 
@@ -3344,24 +3447,12 @@ class DbCore implements DbInterface
      */
     public function dec($column, int $count = 1)
     {
-        $column = $this->validateIdentifier($column);
         $table = $this->rawTableName();
-        $query = "UPDATE {$this->from} SET {$column} = {$column} - {$count}";
+        $query = $this->buildCounterQuery($column, '-', $count);
 
-        if (!is_null($this->where)) {
-            $query .= ' WHERE ' . $this->where;
-        }
-
-        // 存储查询（插值后的可读SQL），用于getSql方法
+        // 存储查询（插值后的可读SQL），用于调试与 getSqlLogs
         $this->_lastQuery = $this->interpolateQuery($query);
         $this->_queryType = 'update';
-
-        if ($this->_returnSql) {
-            $this->_returnSql = false;
-            $displaySql = $this->interpolateQuery($query);
-            $this->reset();
-            return $displaySql;
-        }
 
         $affected = $this->query($query, false);
 

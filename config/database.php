@@ -18,6 +18,8 @@ return [
 			'cachetime' => 3600,//缓存时间(秒)
 			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
 			'debug' => env('DB_DEBUG', false),//调试模式:报错时输出详细SQL(生产环境必须false)
+			'log_sql' => env('DB_LOG_SQL', 2),//SQL日志:0关闭 1只记写操作 2全部记录(调试条与lastQuery用)
+			'log_sql_max' => env('DB_LOG_SQL_MAX', 1000),//SQL日志最多保留条数(0=不限),防止长跑脚本内存膨胀
 		'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		'sqlite'	=>	[
@@ -27,6 +29,8 @@ return [
 			'cachetime' => 3600,//缓存时间(秒)
 			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
 			'debug' => env('DB_DEBUG', false),//调试模式:报错时输出详细SQL(生产环境必须false)
+			'log_sql' => env('DB_LOG_SQL', 2),//SQL日志:0关闭 1只记写操作 2全部记录(调试条与lastQuery用)
+			'log_sql_max' => env('DB_LOG_SQL_MAX', 1000),//SQL日志最多保留条数(0=不限),防止长跑脚本内存膨胀
 		'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		'pgsql'	=>	[
@@ -42,6 +46,8 @@ return [
 			'cachetime' => 3600,//缓存时间(秒)
 			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
 			'debug' => env('DB_DEBUG', false),//调试模式:报错时输出详细SQL(生产环境必须false)
+			'log_sql' => env('DB_LOG_SQL', 2),//SQL日志:0关闭 1只记写操作 2全部记录(调试条与lastQuery用)
+			'log_sql_max' => env('DB_LOG_SQL_MAX', 1000),//SQL日志最多保留条数(0=不限),防止长跑脚本内存膨胀
 		'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		'oracle'	=>	[
@@ -57,6 +63,8 @@ return [
 			'cachetime' => 3600,//缓存时间(秒)
 			'cachedir'	=> ROOT_PATH . 'runtime'.DS.'db'.DS,//缓存目录(可选)
 			'debug' => env('DB_DEBUG', false),//调试模式:报错时输出详细SQL(生产环境必须false)
+			'log_sql' => env('DB_LOG_SQL', 2),//SQL日志:0关闭 1只记写操作 2全部记录(调试条与lastQuery用)
+			'log_sql_max' => env('DB_LOG_SQL_MAX', 1000),//SQL日志最多保留条数(0=不限),防止长跑脚本内存膨胀
 		'options' => [ ]//连接选项(像SSL证书等可选)
 		],
 		

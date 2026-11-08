@@ -931,11 +931,13 @@ abstract class Model
 			throw new \Exception("方法 {$method} 不存在");
 		}
 
-		// 事务/原生执行/表维护/构建器配置类方法：不构成SELECT查询，直连透传
+		// 事务/原生执行/表维护/构建器配置类方法：不构成SELECT查询，直连透传。
+		// getSql() 不在此列：快照后面还要链 get()/first() 等 SELECT 执行器，
+		// 必须先把软删除范围套上，否则取到的 SQL 与真实查询不一致。
 		$directMethods = [
 			'transaction', 'commit', 'rollback', 'exec', 'fetch', 'fetchall', 'query',
 			'getpdo', 'is_table', 'optimize', 'analyze', 'check', 'repair', 'checksum',
-			'truncate', 'drop', 'cache', 'getsql', 'allowfulltable', 'escape',
+			'truncate', 'drop', 'cache', 'allowfulltable', 'escape',
 		];
 		if (!in_array(strtolower($method), $directMethods, true)) {
 			$this->applySoftDeleteScope($query);

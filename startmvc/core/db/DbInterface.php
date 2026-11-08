@@ -46,11 +46,10 @@ interface DbInterface
 
     /**
      * @param array $data
-     * @param bool  $type
      *
-     * @return mixed
+     * @return int 影响行数
      */
-    public function update(array $data, $type = false);
+    public function update(array $data);
 
     /**
      * 插入数据
@@ -73,11 +72,9 @@ interface DbInterface
     public function insertGetId(array $data, $type = 'INSERT');
 
     /**
-     * @param bool $type
-     *
-     * @return mixed
+     * @return int 影响行数
      */
-    public function delete($type = false);
+    public function delete();
 
     /**
      * 布尔值取反（0变1，1变0）
