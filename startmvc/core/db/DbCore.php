@@ -2393,7 +2393,11 @@ class DbCore implements DbInterface
             $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($tableName));
             return $stmt ? $stmt->rowCount() > 0 : false;
         } catch (\Throwable $e) {
-            // PDOException/连接异常等均视为表不可用
+            // 表被删/未安装/连接失败都是高频正常路径，默认完全静默；
+            // debug 下留一行日志，避免「表明明存在却判 false」时无从下手
+            if (!empty($this->config['debug'])) {
+                error_log('[startmvc][is_table] ' . $e->getMessage());
+            }
             return false;
         }
     }
@@ -2554,6 +2558,12 @@ class DbCore implements DbInterface
             $stmt = $this->pdo->prepare($this->query);
             $this->bindValues($stmt);
             $stmt->execute();
+
+            // 原始SQL写入同样要让查询缓存失效（只读语句不浪费一次文件写）
+            if (!$this->isSelectStatement($this->query)) {
+                $this->bumpQueryCacheEpoch();
+            }
+
             return $stmt->rowCount();
         } catch (PDOException $e) {
             $this->error = $e->getMessage();
@@ -2662,27 +2672,27 @@ class DbCore implements DbInterface
             $this->query = preg_replace('/\s\s+|\t\t+/', ' ', trim($query));
 
             // 判断是否为返回结果集的语句
-            $isSelect = false;
-            foreach (['select', 'show', 'describe', 'desc', 'explain', 'optimize', 'check', 'repair', 'checksum', 'analyze'] as $value) {
-                if (stripos($this->query, $value) === 0) {
-                    $isSelect = true;
-                    break;
-                }
-            }
+            $isSelect = $this->isSelectStatement($this->query);
 
             $type = $this->getFetchType($type);
 
-            // 查询缓存：key 必须包含绑定参数，否则不同参数会命中同一缓存
-            $cacheKey = $this->query . '|' . serialize($this->bindings);
-            $cache = false;
+            // 查询缓存：键必须包含「连接标识 + 完整 SQL + 绑定参数」
+            //   - 只有 SQL：不同参数会命中同一缓存；
+            //   - 没有连接标识：多个库共用 cachedir 时会串味（A 库的结果被 B 库读到）。
+            $cacheKey = $this->cacheNamespace() . '|' . $this->query . '|' . serialize($this->bindings);
+            $cached = ['hit' => false, 'data' => null];
             if ($isSelect && !is_null($this->cache) && $type !== PDO::FETCH_CLASS) {
-                $cache = $this->cache->getCache($cacheKey, true);
+                // fetch() 用 hit 标记而不是「null/false 代表未命中」，
+                // 查询结果本身就是 false（单行无记录）时也能正常缓存
+                $cached = $this->cache->fetch($cacheKey, true);
             }
 
-            if ($cache !== false && $cache !== null) {
+            if ($cached['hit']) {
                 // 缓存命中
-                $this->result = $cache;
-                $this->numRows = is_array($this->result) ? count($this->result) : ($this->result === '' ? 0 : 1);
+                $this->result = $cached['data'];
+                $this->numRows = is_array($this->result)
+                    ? count($this->result)
+                    : (($this->result === false || $this->result === null || $this->result === '') ? 0 : 1);
 
                 $currentJoinNodes = $this->joinNodes;
                 if (!empty($currentJoinNodes) && is_array($this->result)) {
@@ -2735,6 +2745,10 @@ class DbCore implements DbInterface
                     // 非SELECT查询（INSERT、UPDATE、DELETE等），rowCount()返回影响行数
                     $this->result = $stmt->rowCount();
                     $this->numRows = $this->result;
+
+                    // 数据可能已变：递增查询缓存代际号，让所有旧缓存文件整体失联。
+                    // 未启用查询缓存（没有 db.epoch）时这里只做一次 is_file 探测。
+                    $this->bumpQueryCacheEpoch();
                 }
             }
 
@@ -3049,8 +3063,15 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 设置缓存
-     * 
+     * 设置查询缓存
+     *
+     * 缓存「写后自动失效」的实现方式：启用时在缓存目录建立代际文件 db.epoch，
+     * 之后任何 insert/update/delete/truncate/drop 以及原始 SQL 写操作都会递增代际号，
+     * 缓存文件名里带代际号，旧文件因此整体失联（不需要手工登记表名）。
+     *
+     * 注意与 config/cache.php 的 autoFlushTag 区分：后者只作用于 Cache 标签缓存
+     * （Cache::store()->flushTag()），对本方法的查询缓存无效。
+     *
      * @param int|null $time 缓存时间（秒），null表示使用默认配置
      *
      * @return $this
@@ -3068,25 +3089,98 @@ class DbCore implements DbInterface
                 $time = $cacheConfig['file']['cacheTime'] ?? 3600; // 默认1小时
             }
         }
-        
-        // 优先使用数据库配置中的cachedir
-        if (!empty($this->config['cachedir'])) {
-            $cacheDir = $this->config['cachedir'];
-        } else {
-            // 如果数据库配置中没有设置，则使用缓存配置
-            $cacheConfig = config('cache');
-            $cacheDir = CACHE_PATH . ($cacheConfig['file']['cacheDir'] ?? 'db/');
-        }
-        
+
+        $cacheDir = $this->queryCacheDir();
+
         // 确保缓存目录存在
         if (!file_exists($cacheDir)) {
-            mkdir($cacheDir, 0755, true);
+            @mkdir($cacheDir, 0755, true);
         }
-        
+
+        // 首次使用时才建立代际文件：没用到查询缓存的站点，写库路径零额外开销
+        DbCache::ensureEpochFor($cacheDir);
+
         // 使用DbCache类创建缓存实例
-        $this->cache = new DbCache($cacheDir, $time);
+        $this->cache = new DbCache($cacheDir, (int)$time, $this->debug);
 
         return $this;
+    }
+
+    /**
+     * 查询缓存目录
+     *
+     * 优先取数据库配置的 cachedir，否则回落到 config/cache.php 的 file.cacheDir。
+     *
+     * @return string
+     */
+    protected function queryCacheDir()
+    {
+        if (!empty($this->config['cachedir'])) {
+            return rtrim($this->config['cachedir'], '/\\');
+        }
+
+        $cacheConfig = config('cache');
+        $dir = $cacheConfig['file']['cacheDir'] ?? 'db/';
+
+        return rtrim(CACHE_PATH . $dir, '/\\');
+    }
+
+    /**
+     * 查询缓存的连接命名空间
+     *
+     * 缓存键里必须能区分「读的是哪个库」，否则多个数据库共用同一个 cachedir
+     * （本项目四个驱动默认都指向 runtime/db/）时，同一条 SQL 会互相命中对方的结果。
+     *
+     * @return string
+     */
+    protected function cacheNamespace()
+    {
+        $config = is_array($this->config) ? $this->config : [];
+
+        return md5(implode('|', [
+            $config['driver'] ?? '',
+            $config['host'] ?? '',
+            $config['port'] ?? '',
+            $config['database'] ?? '',
+            (string)$this->prefix,
+        ]));
+    }
+
+    /**
+     * 递增查询缓存代际号（写库后调用）
+     *
+     * 失败不能影响写库结果，因此内部吞掉异常；代际文件不存在时是空操作。
+     *
+     * @return void
+     */
+    protected function bumpQueryCacheEpoch()
+    {
+        try {
+            DbCache::bumpEpochFor($this->queryCacheDir());
+        } catch (\Throwable $e) {
+            if ($this->debug) {
+                error_log('[startmvc][DbCore] 查询缓存失效失败: ' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * 判断SQL是否为返回结果集的语句
+     *
+     * @param string $sql
+     * @return bool
+     */
+    protected function isSelectStatement($sql)
+    {
+        $sql = ltrim((string)$sql);
+
+        foreach (['select', 'show', 'describe', 'desc', 'explain', 'optimize', 'check', 'repair', 'checksum', 'analyze'] as $keyword) {
+            if (stripos($sql, $keyword) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
