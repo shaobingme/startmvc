@@ -523,16 +523,24 @@ class DbCore implements DbInterface
      */
     protected function executeAggregate($function, $field)
     {
-        $query = $this->buildAggregateQuery($function, $field);
+        $result = null;
 
-        // 在克隆体上执行，避免 query() 内部的 reset() 影响原构建器
-        $clone = clone $this;
-        $result = $clone->query($query, false);
+        // 构建与执行全程放进 try：聚合跑在克隆体上，query() 的 finally 只清克隆体，
+        // 原构建器的清理必须由这里负责。失败路径（列名非法、类型转换失败等）原先
+        // 走不到函数尾部的 reset()，from/where/bindings 会留在共享实例上，让后续
+        // 查询带着上一条的 WHERE —— 与「SQL 失败后条件泄漏」是同一类缺陷。
+        try {
+            $query = $this->buildAggregateQuery($function, $field);
 
-        // 聚合在克隆体上执行，原构建器需同步重置并清空缓存标记，
-        // 防止WHERE条件与绑定参数泄漏到同连接的下一次查询（如paginate的计数与数据查询）
-        $this->reset();
-        $this->cache = null;
+            // 在克隆体上执行，避免 query() 内部的 reset() 影响原构建器
+            $clone = clone $this;
+            $result = $clone->query($query, false);
+        } finally {
+            // 聚合在克隆体上执行，原构建器需同步重置并清空缓存标记，
+            // 防止WHERE条件与绑定参数泄漏到同连接的下一次查询（如paginate的计数与数据查询）
+            $this->reset();
+            $this->cache = null;
+        }
         
         // 返回聚合结果
         if ($result && is_array($result) && isset($result['aggregate_value'])) {
@@ -1395,6 +1403,10 @@ class DbCore implements DbInterface
      *
      * 详细错误写入日志文件，不向页面输出；
      * 调试模式下异常携带完整SQL便于排查，生产环境脱敏。
+     *
+     * 本方法只负责「记日志 + 抛异常」，不清构建状态：调用方（query()/exec()/fetch()）
+     * 必须把 reset() 放在 finally 里。失败路径上异常直接从本方法抛出，函数尾部的
+     * 清理语句永远走不到 —— 残留的 from/where/bindings 会污染同一连接的下一次查询。
      *
      * @throw PDOException
      */
