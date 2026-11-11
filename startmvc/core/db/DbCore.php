@@ -2566,6 +2566,7 @@ class DbCore implements DbInterface
         // 确保连接已建立（延迟连接设计下pdo可能为null）
         $this->connect();
 
+        $failed = false;
         try {
             $stmt = $this->pdo->prepare($this->query);
             $this->bindValues($stmt);
@@ -2578,13 +2579,20 @@ class DbCore implements DbInterface
 
             return $stmt->rowCount();
         } catch (PDOException $e) {
+            $failed = true;
             $this->error = $e->getMessage();
+            $this->numRows = 0;
             $this->error();
         } finally {
             // 模式一（原生SQL）执行完毕后清理构建状态与绑定参数，
             // 防止残留 bindings 污染同连接的后续构建器查询（占位符与绑定数错位）
             $this->reset();
-            $this->query = null;
+            // 成功路径消费掉这条语句（重复 exec()/fetch() 返回 null，不会二次执行）；
+            // 失败路径保留 $this->query，让 getQuery() 拿到出错的那条 SQL —— 与
+            // query() 的失败语义保持一致（那边也只清构建状态，不清 query）。
+            if (!$failed) {
+                $this->query = null;
+            }
         }
     }
 
@@ -2606,18 +2614,26 @@ class DbCore implements DbInterface
         // 确保连接已建立（延迟连接设计下pdo可能为null）
         $this->connect();
 
+        $failed = false;
         try {
             $stmt = $this->pdo->prepare($this->query);
             $this->bindValues($stmt);
             $stmt->execute();
         } catch (PDOException $e) {
+            $failed = true;
             $this->error = $e->getMessage();
+            $this->numRows = 0;
             $this->error();
         } finally {
             // 模式一（原生SQL）执行完毕后清理构建状态与绑定参数，
             // 防止残留 bindings 污染同连接的后续构建器查询（占位符与绑定数错位）
             $this->reset();
-            $this->query = null;
+            // 成功路径消费掉这条语句（重复 exec()/fetch() 返回 null，不会二次执行）；
+            // 失败路径保留 $this->query，让 getQuery() 拿到出错的那条 SQL —— 与
+            // query() 的失败语义保持一致（那边也只清构建状态，不清 query）。
+            if (!$failed) {
+                $this->query = null;
+            }
         }
 
         $type = $this->getFetchType($type);
