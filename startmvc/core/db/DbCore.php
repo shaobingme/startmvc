@@ -1333,8 +1333,11 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 设置查询结果的分组
-     * 
+     * 追加分组
+     *
+     * 语义是「追加」不是「覆盖」，与 order() 保持一致：多次调用按顺序拼成多字段 GROUP BY。
+     * 要丢掉已有分组用 regroup()：regroup() 无参 = 清空，regroup($columns) = 清空后重设。
+     *
      * @param string|array $groupBy 分组字段
      *
      * @return $this
@@ -1345,7 +1348,8 @@ class DbCore implements DbInterface
         $items = array_map(function ($item) {
             return $this->validateIdentifier(trim($item), true);
         }, $items);
-        $this->groupBy = implode(', ', $items);
+
+        $this->appendGroup(implode(', ', $items));
         return $this;
     }
 
@@ -1355,6 +1359,46 @@ class DbCore implements DbInterface
     public function groupBy($groupBy)
     {
         return $this->group($groupBy);
+    }
+
+    /**
+     * 覆盖分组 / 清空分组
+     *
+     * 与 group() 的区别是「先清空已有分组」，两种用法：
+     *   - regroup()          不传字段：把分组整个清掉（SQL 里不再有 GROUP BY）；
+     *   - regroup($columns)  传字段：清掉旧分组后按新字段重新分组。
+     *
+     * @param string|array|null $groupBy 分组字段；null 表示只清空
+     *
+     * @return $this
+     */
+    public function regroup($groupBy = null)
+    {
+        $this->groupBy = null;
+
+        // 无字段：仅清空，不再叠加任何分组
+        if ($groupBy === null) {
+            return $this;
+        }
+
+        return $this->group($groupBy);
+    }
+
+    /**
+     * 把一段分组列追加到当前分组后面（内部用，保证 group()/regroup() 拼接口径一致）
+     *
+     * @param string $sql 已校验过的分组列片段
+     * @return void
+     */
+    protected function appendGroup($sql)
+    {
+        if ($sql === '') {
+            throw new \InvalidArgumentException('非法的分组字段: 空的分组段');
+        }
+
+        $this->groupBy = ($this->groupBy === null || $this->groupBy === '')
+            ? $sql
+            : $this->groupBy . ', ' . $sql;
     }
 
     /**
