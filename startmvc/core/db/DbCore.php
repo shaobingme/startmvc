@@ -45,6 +45,15 @@ class DbCore implements DbInterface
     protected $orderBy = null;
     protected $groupBy = null;
     protected $having = null;
+    /**
+     * HAVING 条件的绑定值
+     *
+     * 单独收集而不混进 $bindings：HAVING 在 SQL 文本里位于 WHERE 之后，
+     * 若在 having() 调用时直接 push 进 $bindings，遇到 having() 先于 where()
+     * 的写法绑定顺序会整体错位（执行时静默查错数据）。
+     * 由 buildSelectQuery() 按文本顺序并入。与 $joinBindings 同一思路。
+     */
+    protected $havingBindings = [];
     protected $grouped = false;
     protected $numRows = 0;
     protected $insertId = null;
@@ -1402,28 +1411,124 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 设置HAVING条件
-     * 
-     * @param string            $field 字段名
-     * @param string|array|null $operator 操作符
+     * 追加 HAVING 条件（AND 连接）
+     *
+     * 语义是「追加」不是「覆盖」，与 order()/group() 一致：多次调用按顺序用 AND 拼成多条件。
+     * 需要 OR 用 orHaving()，需要丢掉已有条件用 rehaving()。
+     *
+     * 三种写法：
+     *   - having('cnt', '>', 5)      三参：字段 + 操作符 + 值
+     *   - having('cnt', 5)           两参：视为 cnt > 5
+     *   - having('cnt > ?', [5])     模板：第一参是含 ? 的 SQL 片段，第二参是绑定数组
+     *
+     * @param string            $field 字段名（或含 ? 占位的模板片段）
+     * @param string|array|null $operator 操作符，或模板模式的绑定数组
      * @param string|null       $val 值
      *
      * @return $this
      */
     public function having($field, $operator = null, $val = null)
     {
-        if (is_array($operator)) {
-            // 模板绑定模式: $field 为含 ? 占位的模板，参数直接收集绑定（真预处理，不再拆分替换）
-            $this->mergeBindings(array_values($operator));
-            $this->having = $field;
-        } elseif (!in_array($operator, $this->operators)) {
-            // 两参模式: having('count', 5) 视为 count > 5
-            $this->having = $this->validateIdentifier($field, true) . ' > ' . $this->bind($operator);
-        } else {
-            $this->having = $this->validateIdentifier($field, true) . ' ' . $operator . ' ' . $this->bind($val);
+        return $this->appendHaving($field, $operator, $val, 'AND');
+    }
+
+    /**
+     * 追加 HAVING 条件（OR 连接）
+     *
+     * 参数写法同 having()，只把连接词换成 OR。
+     *
+     * @param string            $field 字段名（或含 ? 占位的模板片段）
+     * @param string|array|null $operator 操作符，或模板模式的绑定数组
+     * @param string|null       $val 值
+     *
+     * @return $this
+     */
+    public function orHaving($field, $operator = null, $val = null)
+    {
+        return $this->appendHaving($field, $operator, $val, 'OR');
+    }
+
+    /**
+     * 覆盖 HAVING 条件 / 清空 HAVING 条件
+     *
+     * 与 having() 的区别是「先清空已有条件与绑定」，两种用法：
+     *   - rehaving()                     不传参数：把 HAVING 整个清掉（SQL 里不再有 HAVING）；
+     *   - rehaving($field, $op, $val)    传参数：清掉旧条件后按新条件重新设置。
+     *
+     * 清空必须连 $havingBindings 一起清：只清 SQL 不清绑定会留下孤儿参数，
+     * 执行时报「参数数量不匹配」。
+     *
+     * @param string|array|null $field 字段名（或含 ? 占位的模板片段）；null 表示只清空
+     * @param string|array|null $operator 操作符，或模板模式的绑定数组
+     * @param string|null       $val 值
+     *
+     * @return $this
+     */
+    public function rehaving($field = null, $operator = null, $val = null)
+    {
+        $this->having = null;
+        $this->havingBindings = [];
+
+        // 无参数：仅清空，不再叠加任何条件
+        if ($field === null) {
+            return $this;
         }
 
+        return $this->having($field, $operator, $val);
+    }
+
+    /**
+     * 组装一段 HAVING 条件并追加到已有条件后面（having()/orHaving() 共用）
+     *
+     * @param string            $field 字段名（或模板片段）
+     * @param string|array|null $operator 操作符，或模板模式的绑定数组
+     * @param string|null       $val 值
+     * @param string            $boolean 与已有条件的连接词（AND / OR）
+     * @return $this
+     */
+    protected function appendHaving($field, $operator, $val, $boolean)
+    {
+        if (is_array($operator)) {
+            // 模板绑定模式: $field 为含 ? 占位的模板，参数进 havingBindings（真预处理，不再拆分替换）
+            foreach (array_values($operator) as $value) {
+                $this->bindHavingValue($value);
+            }
+            $sql = (string)$field;
+        } elseif (!in_array($operator, $this->operators)) {
+            // 两参模式: having('count', 5) 视为 count > 5
+            $sql = $this->validateIdentifier($field, true) . ' > ' . $this->bindHavingValue($operator);
+        } else {
+            $sql = $this->validateIdentifier($field, true) . ' ' . $operator . ' ' . $this->bindHavingValue($val);
+        }
+
+        if (trim($sql) === '') {
+            throw new \InvalidArgumentException('非法的 HAVING 条件: 空的条件段');
+        }
+
+        $this->having = ($this->having === null || $this->having === '')
+            ? $sql
+            : $this->having . ' ' . $boolean . ' ' . $sql;
+
         return $this;
+    }
+
+    /**
+     * 收集 HAVING 条件的绑定值并返回占位符
+     *
+     * 与 bind() 的唯一区别是收集进 $havingBindings 而非 $bindings：
+     * HAVING 在 SQL 文本里排在 WHERE 之后，若在调用时直接混入 $bindings，
+     * 遇到 having() 先于 where() 的写法会整体错位。由 buildSelectQuery() 消费。
+     *
+     * @param mixed $value 绑定值（数组/对象自动转JSON）
+     * @return string 占位符 '?'
+     */
+    protected function bindHavingValue($value)
+    {
+        if (is_array($value) || is_object($value)) {
+            $value = json_encode($value);
+        }
+        $this->havingBindings[] = $value;
+        return '?';
     }
 
     /**
@@ -1742,6 +1847,14 @@ class DbCore implements DbInterface
             $this->bindings = array_merge($this->joinBindings, $this->bindings);
         }
         $this->joinBindings = [];
+
+        // HAVING 绑定按 SQL 文本顺序排在最后（WHERE 之后）：
+        // 若在 having() 调用时直接混入 $bindings，遇到 having() 先于 where() 的写法会整体错位。
+        // 消费后清空，防止同一实例重复构建时重复追加。
+        if ($this->havingBindings !== []) {
+            $this->bindings = array_merge($this->bindings, $this->havingBindings);
+            $this->havingBindings = [];
+        }
 
         $query = 'SELECT ' . $this->select . ' FROM ' . $this->from;
 
@@ -3297,6 +3410,7 @@ class DbCore implements DbInterface
         $this->orderBy = null;
         $this->groupBy = null;
         $this->having = null;
+        $this->havingBindings = []; // HAVING 值绑定（构建时按序合并进 bindings，未消费也必须清）
         $this->join = null;
         $this->joinBindings = []; // JOIN 值绑定（构建时按序合并进 bindings，未消费也必须清）
         $this->subqueryBindingsCount = 0; // joinNode 前置复制计数
