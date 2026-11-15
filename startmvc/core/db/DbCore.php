@@ -3669,7 +3669,8 @@ class DbCore implements DbInterface
      * 追加排序
      *
      * 语义是「追加」不是「覆盖」：多次调用按调用顺序拼成多字段排序，
-     * 前者是主排序、后者依次降为次排序。需要丢掉已有排序重新开始时用 reorder()。
+     * 前者是主排序、后者依次降为次排序。要清掉已有排序用 reorder()：
+     * reorder() 无参 = 清空全部排序，reorder($columns) = 清空后重新设置。
      *
      * @param string|array $columns 排序字段，支持多字段写法：
      *   - 字符串逗号分隔，每段可带独立方向: 'sort ASC, id DESC'
@@ -3744,18 +3745,27 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 覆盖排序（清掉已有排序后重新设置）
+     * 覆盖排序 / 清空排序
      *
-     * 与 order() 的唯一区别是「先清空」：默认排序写完、又需要按调用方参数整体替换时用它，
-     * 否则 order() 会把新字段追加在老字段后面，老字段仍然主导排序结果。
+     * 与 order() 的区别是「先清空已有排序」，两种用法：
+     *   - reorder()                  不传字段：把排序整个清掉（SQL 里不再有 ORDER BY）；
+     *   - reorder($columns, $order)  传字段：清掉旧排序后按新字段重新排，
+     *                                用于「默认排序 + 按调用方参数整体替换」，
+     *                                否则 order() 会把新字段追加在老字段后面，老字段仍主导结果。
      *
-     * @param string|array $columns 排序字段，写法同 order()
+     * @param string|array|null $columns 排序字段，写法同 order()；null 表示只清空
      * @param string $order 排序方式
      * @return $this
      */
-    public function reorder($columns, $order = 'ASC')
+    public function reorder($columns = null, $order = 'ASC')
     {
         $this->orderBy = null;
+
+        // 无字段：仅清空，不再叠加任何排序
+        if ($columns === null) {
+            return $this;
+        }
+
         return $this->order($columns, $order);
     }
 
