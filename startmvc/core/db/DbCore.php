@@ -1478,7 +1478,7 @@ class DbCore implements DbInterface
      *   });
      *
      * 约定（改动前先读）：
-     *   1. 推进顺序固定为主键升序，会覆盖调用前设置的 order；
+     *   1. 推进顺序固定为主键升序，会覆盖（而非追加）调用前设置的 order；
      *   2. 调用前设置的 where 条件会保留，并作用于每一批；
      *   3. 内部查询跑在克隆实例上，原实例（即调用方持有的共享构建器）的构建状态
      *      由本方法在结束时统一重置，语义与 get()/first() 一致 —— 因此 chunk 之后
@@ -1517,9 +1517,10 @@ class DbCore implements DbInterface
                     $query->where($column, '>', $lastValue);
                 }
 
-                // order/limit/offset 都是覆盖式设置：保证推进顺序可控，
-                // 并清掉调用方可能残留的偏移量
-                $rows = $query->order($column, 'ASC')->limit($count)->offset(0)->get();
+                // order 用 reorder（不是 order）：推进列必须是主排序，
+                // 追加写法会让调用方残留的排序排在前面，遍历顺序就不可控了；
+                // limit/offset 本身是覆盖式设置，顺带清掉调用方可能残留的偏移量
+                $rows = $query->reorder($column, 'ASC')->limit($count)->offset(0)->get();
 
                 if (empty($rows)) {
                     break;
@@ -3665,7 +3666,10 @@ class DbCore implements DbInterface
     }
 
     /**
-     * 设置排序
+     * 追加排序
+     *
+     * 语义是「追加」不是「覆盖」：多次调用按调用顺序拼成多字段排序，
+     * 前者是主排序、后者依次降为次排序。需要丢掉已有排序重新开始时用 reorder()。
      *
      * @param string|array $columns 排序字段，支持多字段写法：
      *   - 字符串逗号分隔，每段可带独立方向: 'sort ASC, id DESC'
@@ -3682,14 +3686,14 @@ class DbCore implements DbInterface
         }
 
         if (is_array($columns)) {
-            $this->orderBy = implode(', ', array_map(function ($column) use ($order) {
+            $sql = implode(', ', array_map(function ($column) use ($order) {
                 return $this->validateIdentifier($column, true) . " {$order}";
             }, $columns));
         } else {
             $columns = trim((string)$columns);
             // 处理特殊情况如RAND()
             if (strtolower($columns) === 'rand()') {
-                $this->orderBy = $columns;
+                $this->appendOrder($columns);
                 return $this;
             }
 
@@ -3732,9 +3736,44 @@ class DbCore implements DbInterface
                 }
                 $parts[] = $this->validateIdentifier($field, true) . " {$direction}";
             }
-            $this->orderBy = implode(', ', $parts);
+            $sql = implode(', ', $parts);
         }
+
+        $this->appendOrder($sql);
         return $this;
+    }
+
+    /**
+     * 覆盖排序（清掉已有排序后重新设置）
+     *
+     * 与 order() 的唯一区别是「先清空」：默认排序写完、又需要按调用方参数整体替换时用它，
+     * 否则 order() 会把新字段追加在老字段后面，老字段仍然主导排序结果。
+     *
+     * @param string|array $columns 排序字段，写法同 order()
+     * @param string $order 排序方式
+     * @return $this
+     */
+    public function reorder($columns, $order = 'ASC')
+    {
+        $this->orderBy = null;
+        return $this->order($columns, $order);
+    }
+
+    /**
+     * 把一段排序列追加到当前排序后面（内部用，保证 order()/reorder() 拼接口径一致）
+     *
+     * @param string $sql 已校验过的排序列片段
+     * @return void
+     */
+    protected function appendOrder($sql)
+    {
+        if ($sql === '') {
+            throw new \InvalidArgumentException('非法的排序字段: 空的排序段');
+        }
+
+        $this->orderBy = ($this->orderBy === null || $this->orderBy === '')
+            ? $sql
+            : $this->orderBy . ', ' . $sql;
     }
 
     /**
