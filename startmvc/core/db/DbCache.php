@@ -13,17 +13,19 @@ namespace startmvc\core\db;
  * 设计要点（2026-11 重构）：
  *  1. 缓存条目原子写：先写 `.tmp` 再 rename，读者永远看不到半截 JSON；不用 fopen/fclose，句柄不泄漏。
  *  2. 容错：坏文件 / 空文件 / 缺字段一律按「未命中」处理并顺手删除，不刷 PHP 告警。
- *  3. 代际号（epoch）：写库时递增一个极小文件的内容，缓存文件名里带上它，
- *     旧文件自然不可命中。内容用「时间戳-随机串」而不是自增计数器，避免并发自增丢更新。
+ *  3. 代际号（epoch）：写库时递增一个极小文件的内容，缓存内容里带上它，
+ *     读取时不一致即视为未命中，旧内容由下次写入同名覆盖。
+ *     内容用「时间戳-随机串」而不是自增计数器，避免并发自增丢更新。
  *     请求级备忘录带「mtime 距现在 > 1 秒」的前置条件，规避文件系统 mtime 只有秒级精度
  *     导致「同一秒内 bump 后仍读到旧代际号」的坑。
  *  4. 键归一化：所有目录键统一 rtrim 掉尾部分隔符，正斜杠/反斜杠两种写法指向同一个代际文件。
- *  5. GC：过期文件、旧代际文件、崩溃残留的 .tmp 会被回收（低概率触发，也可显式调用）。
+ *  5. GC：过期条目、旧命名格式残留、崩溃残留的 .tmp 会被回收
+ *     （低概率触发 + 每次扫描有预算上限，成本有界）。
  *
  * 目录里会出现三类文件：
- *   db.epoch                     当前代际号（内容即代际标识）
- *   {md5}-{epoch}.cache          缓存条目（过期时间在内容里，与文件名无关）
- *   *.tmp                        写入中间态
+ *   db.epoch        当前代际号（内容即代际标识）
+ *   {md5}.cache     缓存条目（代际号与过期时间都在内容里，文件名只由键决定）
+ *   *.tmp           写入中间态
  */
 class DbCache
 {
@@ -62,6 +64,16 @@ class DbCache
      * @var int|null
      */
     protected $finish = null;
+
+    /**
+     * 本次读取时看到的代际号（一个实例只服务一条 SQL）
+     *
+     * setCache() 用它判断「读和写之间是否发生过写库」：代际已变说明查到的结果
+     * 可能早于那次写入，宁可放弃缓存也不写脏数据（否则脏值会留满一整个 TTL）。
+     *
+     * @var string|null
+     */
+    protected $epochAtRead = null;
 
     /**
      * 是否输出诊断日志（json_encode 失败等）
@@ -140,6 +152,10 @@ class DbCache
             return $miss;
         }
 
+        // 文件名不含代际号（文件数才有上限），代际校验靠内容，所以先取当前代际号
+        $epoch = $this->epoch();
+        $this->epochAtRead = $epoch;
+
         $file = $this->cacheFile($sql);
 
         if (!is_file($file)) {
@@ -157,6 +173,17 @@ class DbCache
         $decoded = json_decode($raw, $array ? true : false);
         if (!$this->isValidPayload($decoded, $array)) {
             @unlink($file);
+            return $miss;
+        }
+
+        // 代际不符 = 已被写库作废。这里不删文件：同名位置下次 setCache() 直接覆盖，
+        // 删了反而要多付一次 unlink（Windows 上 unlink 比覆盖写贵一个数量级）。
+        $fileEpoch = $array
+            ? (isset($decoded['epoch']) ? (string)$decoded['epoch'] : '')
+            : (isset($decoded->epoch) ? (string)$decoded->epoch : '');
+        if ($fileEpoch !== $epoch) {
+            // 失效刚发生，正是扫一遍过期条目的时机（内部仍是 2% 概率 + 每请求一次）
+            $this->maybeCollectGarbage();
             return $miss;
         }
 
@@ -188,7 +215,19 @@ class DbCache
             return false;
         }
 
-        $payload = json_encode(['data' => $result, 'finish' => (int)$this->finish]);
+        $epoch = $this->epoch();
+
+        // 读和写之间发生过写库：查到的结果可能早于那次写入，写进去会脏一整个 TTL。
+        // 一个 DbCache 实例只服务一条 SQL，所以 epochAtRead 不会串到别的查询上。
+        if ($this->epochAtRead !== null && $this->epochAtRead !== $epoch) {
+            return false;
+        }
+
+        $payload = json_encode([
+            'data'   => $result,
+            'finish' => (int)$this->finish,
+            'epoch'  => $epoch,
+        ]);
         if ($payload === false) {
             // 非法 UTF-8 / INF / 资源句柄等：宁可不缓存，也不写 0 字节坏文件
             if ($this->debug) {
@@ -245,13 +284,14 @@ class DbCache
     }
 
     /**
-     * 回收过期 / 旧代际 / 残留临时文件
+     * 回收过期条目 / 旧命名格式残留 / 崩溃残留的临时文件
      *
-     * @param bool $force 跳过「低概率触发」限制（测试与运维脚本用）
+     * @param bool $force  跳过「低概率触发」限制（测试与运维脚本用）
+     * @param int  $budget 单次最多检查多少个目录项（防一次性扫爆内存 / 拖死请求）
      *
      * @return int 回收的文件数
      */
-    public function collectGarbage($force = false)
+    public function collectGarbage($force = false, $budget = 500)
     {
         $dir = $this->epochKey();
         if ($dir === '' || !is_dir($dir)) {
@@ -262,42 +302,49 @@ class DbCache
             if (!empty(self::$gcDone[$dir])) {
                 return 0;
             }
-            // 2% 概率触发，避免每个请求都扫目录；扫一次的收益是全量清理
+            // 2% 概率触发，避免每个请求都扫目录；单次扫描量由 $budget 兜底
             if (mt_rand(1, 100) > 2) {
                 return 0;
             }
         }
         self::$gcDone[$dir] = true;
 
-        $epoch = $this->epoch();
         $now = time();
         $removed = 0;
-        $pattern = '/^[0-9a-f]{32}-(' . self::EPOCH_PATTERN . ')' . preg_quote(self::CACHE_SUFFIX, '/') . '$/';
-        // 旧命名格式（重构前是 {md5}.cache，没有代际号）
-        $legacy = '/^[0-9a-f]{32}' . preg_quote(self::CACHE_SUFFIX, '/') . '$/';
-        $files = (array)glob($dir . DIRECTORY_SEPARATOR . '*' . self::CACHE_SUFFIX);
+        $scanned = 0;
 
-        // 大目录（上万条）本轮只收旧代际，不逐个读内容判过期，
-        // 避免一次 GC 变成上万次读盘；过期条目会在后续轮次被收掉
-        $skipExpiryScan = count($files) > 3000;
+        // 流式遍历 + 扫描预算：单次最多看 $budget 个目录项。
+        // 不用 glob()：几十万文件时它会一次性把所有路径装进内存（实测 2 万条 +4MB），
+        // 也没有中途退出的机会，一个请求就会被拖死。
+        $handle = @opendir($dir);
+        if ($handle === false) {
+            return 0;
+        }
 
-        foreach ($files as $file) {
-            $base = basename($file);
+        // 旧命名 {md5}-{epoch}.cache：升级残留，直接回收
+        $legacyPattern = '/^[0-9a-f]{32}-' . self::EPOCH_PATTERN . preg_quote(self::CACHE_SUFFIX, '/') . '$/';
+        // 当前命名 {md5}.cache：按内容里的 finish 判过期
+        $currentPattern = '/^[0-9a-f]{32}' . preg_quote(self::CACHE_SUFFIX, '/') . '$/';
+        $tmpMark = self::CACHE_SUFFIX . '.';
 
-            if (preg_match($pattern, $base, $m)) {
-                // 旧代际：不用读内容，直接回收
-                if ($m[1] !== $epoch) {
-                    if (@unlink($file)) {
-                        $removed++;
-                    }
-                    continue;
+        while (($base = readdir($handle)) !== false) {
+            if ($base === '.' || $base === '..') {
+                continue;
+            }
+            if (++$scanned > $budget) {
+                break;
+            }
+
+            $file = $dir . DIRECTORY_SEPARATOR . $base;
+
+            if (preg_match($legacyPattern, $base)) {
+                if (@unlink($file)) {
+                    $removed++;
                 }
+                continue;
+            }
 
-                if ($skipExpiryScan) {
-                    continue;
-                }
-
-                // 当前代际：按内容里的 finish 判断是否过期
+            if (preg_match($currentPattern, $base)) {
                 $raw = @file_get_contents($file);
                 $data = ($raw === false || $raw === '') ? null : json_decode($raw, true);
                 if (!is_array($data) || !array_key_exists('finish', $data) || (int)$data['finish'] < $now) {
@@ -308,9 +355,10 @@ class DbCache
                 continue;
             }
 
-            // 旧命名格式：清掉，帮升级后的目录减负
-            if (preg_match($legacy, $base)) {
-                if (@unlink($file)) {
+            // 崩溃残留的临时文件：{md5}.cache.{pid}.{rand}.tmp
+            if (strpos($base, $tmpMark) !== false && substr($base, -strlen(self::TMP_SUFFIX)) === self::TMP_SUFFIX) {
+                $mtime = @filemtime($file);
+                if ($mtime !== false && $now - $mtime > self::TMP_TTL && @unlink($file)) {
                     $removed++;
                 }
             }
@@ -318,13 +366,55 @@ class DbCache
             // 其他 .cache 文件可能是别的组件（如 Cache 文件驱动）的，不要动
         }
 
-        // 只清理自己的临时文件（{md5}-{epoch}.cache.{pid}.{rand}.tmp）
-        foreach ((array)glob($dir . DIRECTORY_SEPARATOR . '*' . self::CACHE_SUFFIX . '.*' . self::TMP_SUFFIX) as $file) {
-            $mtime = @filemtime($file);
-            if ($mtime !== false && $now - $mtime > self::TMP_TTL && @unlink($file)) {
+        closedir($handle);
+
+        return $removed;
+    }
+
+    /**
+     * 清空查询缓存目录（CLI / 运维用）
+     *
+     * 只删自己的 .cache 与 .tmp，保留 db.epoch 与任何无关文件。
+     * 删缓存永远安全：最坏结果是冷缓存回源一次。
+     *
+     * 升级到「文件名不含代际」之后，老目录里的 {md5}-{epoch}.cache 靠这个一次性清掉；
+     * 不要放进 Web 请求（几十万文件的遍历 + unlink 会把请求拖死）。
+     *
+     * @param string $dir 缓存目录
+     *
+     * @return int 删除的文件数
+     */
+    public static function purge($dir)
+    {
+        $key = self::normalizeDir($dir);
+        if ($key === '' || !is_dir($key)) {
+            return 0;
+        }
+
+        $removed = 0;
+        $handle = @opendir($key);
+        if ($handle === false) {
+            return 0;
+        }
+
+        while (($base = readdir($handle)) !== false) {
+            if ($base === '.' || $base === '..' || $base === self::EPOCH_FILE) {
+                continue;
+            }
+
+            $isCache = substr($base, -strlen(self::CACHE_SUFFIX)) === self::CACHE_SUFFIX;
+            $isTmp = substr($base, -strlen(self::TMP_SUFFIX)) === self::TMP_SUFFIX;
+            if (!$isCache && !$isTmp) {
+                continue;
+            }
+
+            if (@unlink($key . DIRECTORY_SEPARATOR . $base)) {
                 $removed++;
             }
         }
+        closedir($handle);
+
+        unset(self::$epochs[$key]);
 
         return $removed;
     }
@@ -433,11 +523,13 @@ class DbCache
     }
 
     /**
-     * 根据SQL生成缓存文件完整路径（含代际号）
+     * 根据SQL生成缓存文件完整路径
      *
-     * 文件名里只放「键 + 代际号」，过期时间放在文件内容里：
-     * 若把 finish 也编进文件名，不同请求（构造时间不同）算出的文件名会不一样，
-     * 跨请求就永远命不中——这个坑在重构中踩过一次，别再踩。
+     * 文件名只由「键」决定，不含代际号、也不含过期时间：
+     *  - 含代际号 → 每次写库整体换一套文件名，旧文件永远不可达，
+     *    文件数 = 写库次数 × 条目数（2026-11-22 线上 4.4G 事故的根因）；
+     *  - 含 finish → 不同请求（构造时间不同）算出的文件名不一样，跨请求永远命不中。
+     * 代际号与过期时间都放在文件内容里，由 fetch() 校验。
      *
      * @param string $name 缓存键
      *
@@ -445,8 +537,7 @@ class DbCache
      */
     protected function cacheFile($name)
     {
-        return $this->epochKey() . DIRECTORY_SEPARATOR
-            . $this->fileName($name) . '-' . $this->epoch() . self::CACHE_SUFFIX;
+        return $this->epochKey() . DIRECTORY_SEPARATOR . $this->fileName($name) . self::CACHE_SUFFIX;
     }
 
     /**

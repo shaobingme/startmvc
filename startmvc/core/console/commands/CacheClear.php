@@ -11,14 +11,16 @@
 namespace startmvc\core\console\commands;
 
 use startmvc\core\console\Command;
+use startmvc\core\db\DbCache;
 use startmvc\core\Router;
 
 /**
  * 清理编译缓存
  *
- * 做两件事：
+ * 做三件事：
  *   1. 删除路由编译缓存 runtime/cache/routes.php（下次请求自动重建）
  *   2. 清空 runtime/temp/<模块>/ 下的模板编译产物（含 <模块>/<主题>/ 子目录）
+ *   3. 清空数据库查询缓存 runtime/db/ 下的 .cache 与 .tmp（保留 db.epoch）
  *
  * 安全边界：只处理 app/ 下真实存在的模块名对应的目录，且只删其中的 .php 文件；
  * 不触碰 runtime/temp/ 根目录下的文件（那里可能放着开发者自己的脚本）。
@@ -98,6 +100,32 @@ class CacheClear extends Command
             $this->muted('  跳过    ' . $this->relative($tempDir) . '/*/（没有模板编译产物）');
         }
 
+        // ---- 3. 数据库查询缓存：runtime/db/ ----
+        // 升级到「文件名不含代际」之后，老目录里的 {md5}-{epoch}.cache 再也不会被命中，
+        // 只能靠这里一次性清掉（2026-11-22 线上堆到 4.4G 就是这批孤儿）。
+        // 删缓存永远安全：最坏结果是冷缓存回源一次。
+        $dbDirs = $this->dbCacheDirs();
+        $dbDeleted = 0;
+        $dbTouched = [];
+
+        foreach ($dbDirs as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+            $n = DbCache::purge($dir);
+            if ($n > 0) {
+                $dbDeleted += $n;
+                $dbTouched[] = $this->relative($dir) . '（' . $n . ' 个）';
+            }
+        }
+
+        if ($dbDeleted > 0) {
+            $this->line(sprintf('  已清空  %s 下的查询缓存', implode('、', $dbTouched)));
+            $deleted += $dbDeleted;
+        } else {
+            $this->muted('  跳过    ' . $this->relative($dbDirs[0]) . '/（没有查询缓存）');
+        }
+
         $this->blank();
         if ($deleted > 0) {
             $this->info("缓存已清理，共删除 {$deleted} 个文件");
@@ -107,6 +135,33 @@ class CacheClear extends Command
         $this->blank();
 
         return true;
+    }
+
+    /**
+     * 收集所有连接配置里的查询缓存目录
+     *
+     * 四个驱动默认都指向 runtime/db/，但 cachedir 是可配的，去重后再逐个清。
+     *
+     * @return array
+     */
+    private function dbCacheDirs()
+    {
+        $dirs = [];
+        $connections = config('database.connections');
+
+        if (is_array($connections)) {
+            foreach ($connections as $conf) {
+                if (!empty($conf['cachedir'])) {
+                    $dirs[] = rtrim(str_replace('\\', '/', $conf['cachedir']), '/');
+                }
+            }
+        }
+
+        if (empty($dirs)) {
+            $dirs[] = rtrim(str_replace('\\', '/', $this->rootPath() . 'runtime/db'), '/');
+        }
+
+        return array_values(array_unique($dirs));
     }
 
     /**
